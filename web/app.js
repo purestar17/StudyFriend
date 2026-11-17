@@ -57,7 +57,10 @@
 
   // ---- 상태 ----
   let screen = { name: "home" };
-  function go(next) { screen = next; render(); window.scrollTo(0, 0); }
+  function go(next) {
+    if (writer) { try { writer.cancelQuiz(); } catch { /* 무시 */ } writer = null; }
+    screen = next; render(); window.scrollTo(0, 0);
+  }
 
   function startQuiz(id) {
     const lv = settings.level(id);
@@ -110,7 +113,7 @@
         h("button", { class: "icon-btn", "aria-label": "관리자 모드", onclick: () => go({ name: "pin" }) }, "⚙ 관리자")),
       h("div", { class: "subjects" }, SUBJECTS.map((s) => {
         const done = today.filter((x) => x.subject === s.id).length;
-        return h("button", { class: "subject", style: `--c:${colorOf(s.id)}`, onclick: () => startQuiz(s.id) },
+        return h("button", { class: "subject", style: `--c:${colorOf(s.id)}`, onclick: () => (s.id === "HANJA" ? go({ name: "hanjaHub" }) : startQuiz(s.id)) },
           h("span", { class: "mark", "aria-hidden": "true" }, s.mark),
           h("span", {}, h("div", { class: "name" }, s.title),
             h("div", { class: "lv" }, levelLabel(s, settings.level(s.id)) + (done ? ` · 오늘 ${done}회 ✔` : ""))));
@@ -127,7 +130,10 @@
     const ok = s.answered !== null && normalize(s.answered) === normalize(q.answer);
 
     const body = [];
+    if (q.tag) body.push(h("span", { class: "qtag" }, q.tag));
     body.push(h("div", { class: "prompt" }, q.prompt));
+    if (q.sentence) body.push(sentenceEl(q.sentence));
+    if (q.stroke) body.push(strokeFigure(q.stroke.char, q.stroke.highlight, "exam"));
     if (q.big || q.speak) {
       body.push(h("div", { class: "big-wrap" },
         q.big ? h("div", { class: "big" + (isHanjaBig ? " hanja" : ""), lang: isHanjaBig ? "zh-Hant" : null }, q.big) : null,
@@ -160,7 +166,7 @@
     }
     return [
       h("div", { class: "quiz-top", style: `--c:${colorOf(s.subject)}` },
-        h("button", { class: "icon-btn", "aria-label": "그만하기", onclick: () => go({ name: "home" }) }, "✕"),
+        h("button", { class: "icon-btn", "aria-label": "그만하기", onclick: () => go({ name: s.subject === "HANJA" ? "hanjaHub" : "home" }) }, "✕"),
         h("div", { class: "title" }, `${subject.title} · ${levelLabel(subject, s.level)}`),
         h("div", { class: "count" }, `${s.index + 1} / ${s.questions.length}`)),
       h("div", { class: "bar", style: `--c:${colorOf(s.subject)}` }, h("i", { style: `width:${(done / s.questions.length) * 100}%` })),
@@ -177,12 +183,159 @@
       h("div", { class: "score" }, `${r.correct}/${r.total}`),
       h("h2", { style: "font-size:30px" }, rate >= 90 ? "아주 잘했어요!" : rate >= 70 ? "잘했어요!" : "조금만 더 힘내요!"),
       h("div", { class: "muted" }, `정답률 ${rate}%`),
+      r.subject === "HANJA" ? h("div", { class: "pass " + (rate >= 70 ? "ok" : "no") },
+        `${levelLabel(subject, r.level)} 합격 기준 70% · ${rate >= 70 ? "합격이에요!" : "아직 불합격이에요"}`) : null,
       r.change === 1 ? h("div", { class: "lvup" }, `레벨 업! 다음부터 ${levelLabel(subject, r.level + 1)} 문제가 나와요`) : null,
       r.change === -1 ? h("div", { class: "lvdown" }, `다음에는 ${levelLabel(subject, r.level - 1)} 문제로 다시 연습해 봐요`) : null,
       r.wrong.length ? h("div", { class: "wronglist" }, h("strong", {}, "틀린 문제 다시 보기"), h("ul", {}, r.wrong.map((w) => h("li", {}, w)))) : null,
       h("div", { class: "actions" },
-        h("button", { class: "btn", onclick: () => go({ name: "home" }) }, "처음으로"),
+        h("button", { class: "btn", onclick: () => go({ name: r.subject === "HANJA" ? "hanjaHub" : "home" }) }, r.subject === "HANJA" ? "한자 메뉴로" : "처음으로"),
         h("button", { class: "btn primary", onclick: () => startQuiz(r.subject) }, "한 번 더")))];
+  }
+
+  // ---- 한자: 획순 데이터 ----
+  const strokeCache = {};
+  function loadStrokes(ch) {
+    if (!strokeCache[ch]) strokeCache[ch] = fetch(`strokes/${encodeURIComponent(ch)}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    return strokeCache[ch];
+  }
+  const SVGNS = "http://www.w3.org/2000/svg";
+  /** 획순 그림. mode "exam": 한 획만 진하게. mode "step": 앞의 획은 진하게, 이번 획은 강조색 */
+  function strokeSvg(data, highlight, mode) {
+    const svg = document.createElementNS(SVGNS, "svg");
+    svg.setAttribute("viewBox", "0 0 1024 1024");
+    svg.setAttribute("role", "img");
+    const g = document.createElementNS(SVGNS, "g");
+    g.setAttribute("transform", "translate(0, 900) scale(1, -1)");
+    data.strokes.forEach((d, i) => {
+      const path = document.createElementNS(SVGNS, "path");
+      path.setAttribute("d", d);
+      let fill = "var(--stroke-faint)";
+      if (mode === "exam") fill = i === highlight ? "var(--ink)" : "var(--stroke-faint)";
+      else if (i < highlight) fill = "var(--ink)";
+      else if (i === highlight) fill = "var(--hanja)";
+      path.setAttribute("fill", fill);
+      g.append(path);
+    });
+    svg.append(g);
+    return svg;
+  }
+  function strokeFigure(ch, highlight, mode) {
+    const box = h("div", { class: mode === "exam" ? "stroke-fig" : "stroke-step" });
+    loadStrokes(ch).then((d) => box.replaceChildren(strokeSvg(d, highlight, mode))).catch(() => box.replaceChildren("획순 그림을 불러오지 못했어요"));
+    return box;
+  }
+  function sentenceEl(text) {
+    const parts = text.split(/\[|\]/);
+    return h("div", { class: "sentence" }, parts.map((t, i) => (i % 2 ? h("u", { lang: "zh-Hant" }, t) : t)));
+  }
+
+  const learned = {
+    all() { return new Set(store.get("learned", [])); },
+    add(ch) { const s = this.all(); s.add(ch); store.set("learned", [...s]); },
+  };
+
+  function HanjaHub() {
+    const subject = subjectById("HANJA");
+    const total = CONTENT.hanja.flat().length, done = learned.all().size;
+    return [
+      h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "처음으로", onclick: () => go({ name: "home" }) }, "←"),
+        h("h1", { style: "font-size:30px" }, "한자")),
+      h("div", { class: "hub" },
+        h("button", { class: "hub-card", style: `--c:${colorOf("HANJA")}`, onclick: () => go({ name: "learnList", lv: settings.level("HANJA") }) },
+          h("span", { class: "mark", lang: "zh-Hant" }, "筆"),
+          h("strong", {}, "획순 학습"),
+          h("span", {}, "획순을 보고 손가락으로 따라 써요"),
+          h("span", { class: "hub-meta" }, `${total}자 중 ${done}자 익힘`)),
+        h("button", { class: "hub-card alt", onclick: () => startQuiz("HANJA") },
+          h("span", { class: "mark", lang: "zh-Hant" }, "試"),
+          h("strong", {}, "급수 문제 풀기"),
+          h("span", {}, "훈음, 한자어 읽기, 반대자, 사자성어, 필순까지 시험처럼 풀어요"),
+          h("span", { class: "hub-meta" }, `지금 ${levelLabel(subject, settings.level("HANJA"))} · 합격 기준 70%`))),
+    ];
+  }
+
+  function LearnList() {
+    const lv = screen.lv, list = CONTENT.hanja[lv - 1], done = learned.all();
+    return [
+      h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "한자 메뉴로", onclick: () => go({ name: "hanjaHub" }) }, "←"),
+        h("h1", { style: "font-size:28px" }, "획순 학습")),
+      h("div", { class: "chips" }, HANJA_LEVEL_NAMES.map((name, i) => h("button", { class: "chip", "aria-pressed": String(lv === i + 1),
+        onclick: () => go({ name: "learnList", lv: i + 1 }) }, `${name} (${CONTENT.hanja[i].filter(([c]) => done.has(c)).length}/${CONTENT.hanja[i].length})`))),
+      h("div", { class: "char-grid" }, list.map(([c, m], i) => h("button", { class: "char-tile" + (done.has(c) ? " done" : ""),
+        onclick: () => go({ name: "learnChar", lv, index: i }) },
+        h("span", { class: "c", lang: "zh-Hant" }, c), h("span", { class: "m" }, m)))),
+    ];
+  }
+
+  let writer = null;
+  function LearnChar() {
+    const { lv, index } = screen;
+    const list = CONTENT.hanja[lv - 1];
+    const [ch, meaning] = list[index];
+    const count = STROKE_COUNTS[ch];
+    const words = HANJA_EXAM.words.flat().filter((w) => w[0].includes(ch)).slice(0, 4);
+    const status = h("div", { class: "write-status", "aria-live": "polite" }, count ? "획순 보기를 눌러 쓰는 순서를 먼저 봐요." : "");
+    const stage = h("div", { class: "writer", id: "writer" });
+    const move = (d) => go({ name: "learnChar", lv, index: (index + d + list.length) % list.length });
+    const color = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+    function startWriter() {
+      writer = null;
+      if (!count || typeof HanziWriter === "undefined") return;
+      const size = Math.min(320, stage.clientWidth || 320);
+      writer = HanziWriter.create(stage, ch, {
+        width: size, height: size, padding: 12, showOutline: true, showCharacter: true,
+        strokeAnimationSpeed: 0.9, delayBetweenStrokes: 350,
+        strokeColor: color("--ink"), outlineColor: color("--stroke-faint"), radicalColor: null,
+        highlightColor: color("--hanja"), drawingColor: color("--hanja"), drawingWidth: 22,
+        charDataLoader: (c, ok, err) => loadStrokes(c).then(ok).catch(err),
+      });
+    }
+    function quiz(withOutline) {
+      if (!writer) return;
+      let mistakes = 0;
+      writer.cancelQuiz();
+      writer.hideCharacter();
+      withOutline ? writer.showOutline() : writer.hideOutline();
+      status.textContent = withOutline ? "회색 글자 위에 1번 획부터 순서대로 써 보세요." : "보지 않고 1번 획부터 순서대로 써 보세요.";
+      writer.quiz({
+        showHintAfterMisses: withOutline ? 2 : 3,
+        leniency: 1.2,
+        onMistake: () => { mistakes++; status.textContent = "순서나 방향이 달라요. 다시 써 볼까요?"; },
+        onCorrectStroke: (d) => { status.textContent = `${d.strokeNum + 1}번째 획 좋아요! (${d.strokeNum + 1}/${count})`; },
+        onComplete: (d) => {
+          const miss = d.totalMistakes;
+          status.textContent = miss === 0 ? "완벽해요! 한 번도 틀리지 않았어요." : `다 썼어요! 틀린 횟수 ${miss}번`;
+          if (!withOutline && miss <= 2) { learned.add(ch); status.textContent += " · 익힌 한자로 표시했어요 ✔"; }
+          writer.showOutline();
+        },
+      });
+    }
+    requestAnimationFrame(startWriter);
+
+    return [
+      h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "목록으로", onclick: () => go({ name: "learnList", lv }) }, "←"),
+        h("h1", { class: "grow", style: "font-size:26px" }, `${HANJA_LEVEL_NAMES[lv - 1]} ${index + 1} / ${list.length}`),
+        h("button", { class: "icon-btn", "aria-label": "이전 한자", onclick: () => move(-1) }, "‹"),
+        h("button", { class: "icon-btn", "aria-label": "다음 한자", onclick: () => move(1) }, "›")),
+      h("div", { class: "learn" },
+        h("div", { class: "learn-left" },
+          count ? stage : h("div", { class: "writer nodata", lang: "zh-Hant" }, ch),
+          status,
+          count ? h("div", { class: "actions" },
+            h("button", { class: "btn", onclick: () => { if (!writer) return; writer.cancelQuiz(); writer.showCharacter(); writer.showOutline(); status.textContent = "쓰는 순서를 잘 봐요."; writer.animateCharacter({ onComplete: () => (status.textContent = "이제 따라 써 볼까요?") }); } }, "획순 보기"),
+            h("button", { class: "btn", onclick: () => quiz(true) }, "따라 쓰기"),
+            h("button", { class: "btn primary", onclick: () => quiz(false) }, "혼자 쓰기"))
+            : h("p", { class: "muted" }, "이 한자는 아직 획순 데이터가 없어요.")),
+        h("div", { class: "learn-right" },
+          h("div", { class: "meaning" }, meaning),
+          h("div", { class: "muted" }, count ? `총 ${count}획` : ""),
+          count ? h("div", { class: "steps", "aria-label": "획순 차례" }, Array.from({ length: count }, (_, i) =>
+            h("figure", {}, strokeFigure(ch, i, "step"), h("figcaption", {}, String(i + 1))))) : null,
+          words.length ? h("div", { class: "examples" }, h("strong", {}, "이 한자가 들어간 말"),
+            h("ul", {}, words.map(([w, r, m]) => h("li", {}, h("span", { lang: "zh-Hant", class: "ew" }, w), ` ${r} · ${m}`)))) : null)),
+    ];
   }
 
   let pinInput = "", pinError = false;
@@ -276,7 +429,7 @@
   }
 
   function render() {
-    const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin };
+    const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin, hanjaHub: HanjaHub, learnList: LearnList, learnChar: LearnChar };
     app.replaceChildren(...views[screen.name]().flat().filter(Boolean));
   }
 

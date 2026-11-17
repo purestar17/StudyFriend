@@ -14,3 +14,11 @@ Android 앱(`android/`)과 같은 문제와 규칙을 브라우저에서 바로 
 - `style.css` 디자인
 
 문제를 추가하거나 고칠 때는 Android 쪽 `content/*.kt`와 `content-data.js`를 함께 바꿔야 합니다.
+
+## 한자 학습
+- 획순 데이터: [Make Me a Hanzi](https://github.com/skishore/makemeahanzi) 기반 `hanzi-writer-data` (Arphic Public License, `strokes/ARPHICPL.TXT`). 중국 표준 획순을 따르므로 한국 교과서 획순과 다른 글자가 일부 있을 수 있습니다. 敎·飮·窓·淸 4자는 데이터가 없어 획순 학습에서 빠집니다.
+- 쓰기 연습: [Hanzi Writer](https://hanziwriter.org) (MIT, `vendor/`).
+- 시험형 문제 데이터: `hanja-exam-data.js` (한자어, 반대자, 사자성어)
+
+## 테스트
+`node web/tests/logic.test.js`

@@ -14,6 +14,8 @@
   --word: #2f9a62;
   --talk: #8355cf;
   --korean: #d48a12;
+  --stroke-faint: #ddd5c6;
+  --grid-line: #e9b8ad;
   --font-display: "Jua", "Noto Sans KR", system-ui, sans-serif;
   --font-body: "Noto Sans KR", system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
   --font-hanja: "Noto Serif KR", "Batang", serif;
@@ -23,6 +25,7 @@
     --bg: #1b1a21; --panel: #26252e; --ink: #f1eee6; --muted: #aaa6b5; --line: #3a3844;
     --accent: #7ea2ff; --accent-ink: #10131c; --good: #5fcf8a; --bad: #ff7c7c;
     --math: #2f6fb8; --hanja: #a8412e; --word: #237a4c; --talk: #6a43ad; --korean: #a86c0b;
+    --stroke-faint: #4a4756; --grid-line: #6b3f37;
     color-scheme: dark;
   }
 }
@@ -30,6 +33,7 @@
   --bg: #1b1a21; --panel: #26252e; --ink: #f1eee6; --muted: #aaa6b5; --line: #3a3844;
   --accent: #7ea2ff; --accent-ink: #10131c; --good: #5fcf8a; --bad: #ff7c7c;
   --math: #2f6fb8; --hanja: #a8412e; --word: #237a4c; --talk: #6a43ad; --korean: #a86c0b;
+  --stroke-faint: #4a4756; --grid-line: #6b3f37;
   color-scheme: dark;
 }
 
@@ -155,6 +159,56 @@ input[type="text"], input[type="password"], input[type="url"] {
 .radio input { width: 20px; height: 20px; }
 .msg { color: var(--accent); }
 
+/* 한자: 시험형 문제 */
+.qtag { font-size: 14px; padding: 3px 12px; border-radius: 99px; border: 1px solid var(--c); color: var(--ink); }
+.sentence { font-size: 26px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 22px; max-width: 100%; }
+.sentence u { font-family: var(--font-hanja); font-size: 32px; text-decoration-thickness: 3px; text-underline-offset: 6px; text-decoration-color: var(--hanja); padding: 0 4px; }
+.stroke-fig { width: 180px; height: 180px; background: var(--panel); border: 2px solid var(--grid-line); border-radius: 8px;
+  background-image: linear-gradient(var(--grid-line), var(--grid-line)), linear-gradient(90deg, var(--grid-line), var(--grid-line));
+  background-size: 100% 1px, 1px 100%; background-position: center; background-repeat: no-repeat; display: grid; place-items: center; }
+.stroke-fig svg { width: 100%; height: 100%; }
+.pass { font-size: 20px; font-weight: 800; padding: 6px 16px; border-radius: 99px; border: 2px solid currentColor; }
+.pass.ok { color: var(--good); } .pass.no { color: var(--bad); }
+
+/* 한자 메뉴 */
+.hub { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.hub-card { border: 0; border-radius: 22px; padding: 22px; text-align: left; display: flex; flex-direction: column; gap: 6px;
+  background: var(--c); color: #fff; min-height: 220px; }
+.hub-card.alt { background: var(--panel); color: var(--ink); border: 3px solid var(--hanja); }
+.hub-card .mark { font-family: var(--font-hanja); font-size: 64px; line-height: 1; }
+.hub-card strong { font-family: var(--font-display); font-weight: 400; font-size: 30px; }
+.hub-card .hub-meta { margin-top: auto; font-size: 15px; opacity: .9; }
+
+/* 한자 목록 */
+.char-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; }
+.char-tile { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 8px 4px; display: flex; flex-direction: column; align-items: center; position: relative; }
+.char-tile .c { font-family: var(--font-hanja); font-size: 42px; line-height: 1.2; }
+.char-tile .m { font-size: 13px; color: var(--muted); }
+.char-tile.done { border: 2px solid var(--good); }
+.char-tile.done::after { content: "✔"; position: absolute; top: 4px; right: 8px; color: var(--good); font-size: 13px; }
+
+/* 한자 쓰기 */
+.learn { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 28px; align-items: start; }
+.learn-left { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.learn-left .actions .btn { padding: 0 18px; height: 52px; }
+.writer { width: 100%; max-width: 320px; aspect-ratio: 1; background: var(--panel); border: 2px solid var(--grid-line); border-radius: 10px; touch-action: none;
+  background-image: linear-gradient(var(--grid-line), var(--grid-line)), linear-gradient(90deg, var(--grid-line), var(--grid-line));
+  background-size: 100% 1px, 1px 100%; background-position: center; background-repeat: no-repeat; }
+.writer.nodata { display: grid; place-items: center; font-family: var(--font-hanja); font-size: 180px; }
+.write-status { min-height: 48px; text-align: center; font-size: 18px; }
+.learn-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.meaning { font-family: var(--font-display); font-size: 40px; }
+.steps { display: flex; flex-wrap: wrap; gap: 8px; }
+.steps figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.stroke-step { width: 64px; height: 64px; background: var(--panel); border: 1px solid var(--grid-line); border-radius: 6px; }
+.stroke-step svg { width: 100%; height: 100%; }
+.steps figcaption { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.examples ul { margin: 6px 0 0; padding-left: 18px; }
+.examples .ew { font-family: var(--font-hanja); font-size: 22px; }
+
+@media (max-width: 720px) {
+  .learn { grid-template-columns: 1fr; }
+}
 @media (max-width: 520px) {
   .choices { grid-template-columns: 1fr; }
 }

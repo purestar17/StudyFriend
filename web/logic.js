@@ -16,6 +16,11 @@ const shuffle = (arr) => {
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
 };
+/** 받침에 따라 을/를 */
+const eulReul = (word) => {
+  const c = word.charCodeAt(word.length - 1);
+  return c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 !== 0 ? "을" : "를";
+};
 const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
 
 function choiceQuestion({ prompt, answer, pool, big = null, speak = null, explain = null }) {
@@ -82,12 +87,107 @@ const MathGen = {
 
 const bankAt = (banks, lv) => banks[Math.min(Math.max(lv - 1, 0), banks.length - 1)];
 
-function hanjaQuestion(lv) {
-  const bank = bankAt(CONTENT.hanja, lv);
-  const [h, m] = pick(bank);
-  if (Math.random() < 0.7)
-    return choiceQuestion({ prompt: "이 한자의 뜻과 소리는?", answer: m, pool: bank.map((x) => x[1]), big: h, explain: `${h} : ${m}` });
-  return choiceQuestion({ prompt: `'${m}'에 알맞은 한자는?`, answer: h, pool: bank.map((x) => x[0]), explain: `${h} : ${m}` });
+// ---- 한자: 한자능력검정시험(8급~6급) 유형 ----
+const HANJA_LEVEL_NAMES = ["8급", "7급", "6급"];
+const hanjaUpTo = (lv) => CONTENT.hanja.slice(0, Math.min(Math.max(lv, 1), CONTENT.hanja.length)).flat();
+const hanjaMeaning = (ch) => { for (const lv of CONTENT.hanja) for (const [h, m] of lv) if (h === ch) return m; return null; };
+/** 이번 급수 것을 70% 확률로, 아래 급수 것을 30% 확률로 고른다 (급수 시험은 아래 급수 한자도 포함) */
+function pickByLevel(levels, lv) {
+  const idx = Math.min(Math.max(lv - 1, 0), levels.length - 1);
+  const lower = levels.slice(0, idx).flat();
+  return pick(lower.length && Math.random() < 0.3 ? lower : levels[idx]);
+}
+const wordsUpTo = (lv) => HANJA_EXAM.words.slice(0, Math.min(lv, HANJA_EXAM.words.length)).flat();
+const charLevel = (ch) => CONTENT.hanja.findIndex((l) => l.some(([h]) => h === ch)) + 1;
+const textLevel = (t) => Math.max(...[...t].map(charLevel));
+/** 같은 글자 수의 읽기를 오답으로 쓰고, 모자라면 다른 읽기로 채운다 */
+function readingPool(lv, r) {
+  const all = wordsUpTo(lv).map((x) => x[1]);
+  const same = all.filter((x) => x.length === r.length && x !== r);
+  return same.length >= 3 ? same : all;
+}
+
+const HanjaTypes = {
+  meaning(lv) {
+    const [h, m] = pickByLevel(CONTENT.hanja, lv);
+    return choiceQuestion({ prompt: "다음 漢字의 훈(뜻)과 음(소리)은?", answer: m, pool: hanjaUpTo(lv).map((x) => x[1]), big: h, explain: `${h} : ${m}` });
+  },
+  pickHanja(lv) {
+    const [h, m] = pickByLevel(CONTENT.hanja, lv);
+    return choiceQuestion({ prompt: `훈과 음이 '${m}'인 漢字는?`, answer: h, pool: hanjaUpTo(lv).map((x) => x[0]), explain: `${h} : ${m}` });
+  },
+  wordReading(lv) {
+    const [w, r, mean] = pickByLevel(HANJA_EXAM.words, lv);
+    const pool = readingPool(lv, r);
+    return choiceQuestion({ prompt: "다음 漢字語의 독음(읽는 소리)은?", answer: r, pool, big: w, explain: `${w}(${r}) : ${mean}` });
+  },
+  sentence(lv) {
+    const withSentence = HANJA_EXAM.words.map((l) => l.filter((x) => x[3]));
+    const [w, r, mean, sent] = pickByLevel(withSentence, lv);
+    const pool = readingPool(lv, r);
+    const q = choiceQuestion({ prompt: "밑줄 친 漢字語를 바르게 읽은 것은?", answer: r, pool, explain: `${w}(${r}) : ${mean}` });
+    q.sentence = sent;
+    return q;
+  },
+  wordMeaning(lv) {
+    const [w, r, mean] = pickByLevel(HANJA_EXAM.words, lv);
+    return choiceQuestion({ prompt: "다음 漢字語의 뜻으로 알맞은 것은?", answer: mean, pool: wordsUpTo(lv).map((x) => x[2]), big: w, explain: `${w}(${r}) : ${mean}` });
+  },
+  opposite(lv) {
+    const pairs = HANJA_EXAM.opposites.filter((p) => textLevel(p) <= lv);
+    const p = pick(pairs);
+    const [a, b] = Math.random() < 0.5 ? [p[0], p[1]] : [p[1], p[0]];
+    const pool = [...new Set(pairs.join("").split(""))].filter((c) => c !== a);
+    return choiceQuestion({ prompt: "다음 漢字와 뜻이 반대(상대)되는 漢字는?", answer: b, pool, big: a,
+      explain: `${a}(${hanjaMeaning(a)}) ↔ ${b}(${hanjaMeaning(b)})` });
+  },
+  blank(lv) {
+    const [w, r, mean] = pickByLevel(HANJA_EXAM.words, lv);
+    const i = Math.floor(Math.random() * w.length);
+    const shown = [...w].map((c, j) => (j === i ? "□" : c)).join("");
+    return choiceQuestion({ prompt: `'${r}'(${mean})${eulReul(mean)} 漢字로 쓸 때 □에 들어갈 漢字는?`, answer: w[i],
+      pool: hanjaUpTo(lv).map((x) => x[0]).filter((c) => !w.includes(c)), big: shown, explain: `${w}(${r})` });
+  },
+  idiom(lv) {
+    const list = HANJA_EXAM.idioms.filter((x) => textLevel(x[0]) <= lv);
+    const [w, r, mean] = pick(list);
+    const k = rint(0, 3);
+    if (k === 0) return choiceQuestion({ prompt: "다음 사자성어의 독음은?", answer: r, pool: HANJA_EXAM.idioms.map((x) => x[1]), big: w, explain: `${w}(${r}) : ${mean}` });
+    if (k === 1) return choiceQuestion({ prompt: "다음 사자성어의 뜻으로 알맞은 것은?", answer: mean, pool: HANJA_EXAM.idioms.map((x) => x[2]), big: w, explain: `${w}(${r}) : ${mean}` });
+    const i = rint(0, 4);
+    const shown = [...w].map((c, j) => (j === i ? "□" : c)).join("");
+    return choiceQuestion({ prompt: `사자성어 '${r}'의 □에 들어갈 漢字는?`, answer: w[i], pool: hanjaUpTo(lv).map((x) => x[0]).filter((c) => !w.includes(c)), big: shown, explain: `${w}(${r}) : ${mean}` });
+  },
+  strokeCount(lv) {
+    const c = pickByLevel(CONTENT.hanja.map((l) => l.map((x) => x[0]).filter((h) => STROKE_COUNTS[h])), lv);
+    const n = STROKE_COUNTS[c];
+    const near = [n - 2, n - 1, n + 1, n + 2, n + 3].filter((x) => x >= 1);
+    return choiceQuestion({ prompt: "다음 漢字의 총획수(모두 몇 획)는?", answer: `${n}획`, pool: near.map((x) => `${x}획`), big: c, explain: `${c} : 총 ${n}획` });
+  },
+  strokeOrder(lv) {
+    const c = pickByLevel(CONTENT.hanja.map((l) => l.map((x) => x[0]).filter((h) => STROKE_COUNTS[h] >= 4)), lv);
+    const n = STROKE_COUNTS[c];
+    const k = rint(1, n + 1);
+    const pool = Array.from({ length: n }, (_, i) => `${i + 1}번째`);
+    const q = choiceQuestion({ prompt: "진하게 표시한 획은 몇 번째에 쓰나요?", answer: `${k}번째`, pool, explain: `${c} : ${k}번째 획 (총 ${n}획)` });
+    q.stroke = { char: c, highlight: k - 1 };
+    return q;
+  },
+};
+// 유형별 출제 비율 (합 100)
+const HANJA_MIX = [["meaning", 18], ["pickHanja", 12], ["wordReading", 15], ["sentence", 12], ["wordMeaning", 10],
+  ["opposite", 8], ["blank", 8], ["idiom", 7], ["strokeCount", 5], ["strokeOrder", 5]];
+const HANJA_TYPE_LABEL = { meaning: "훈음", pickHanja: "한자 찾기", wordReading: "한자어 읽기", sentence: "문장 속 한자어",
+  wordMeaning: "한자어 뜻", opposite: "반대자", blank: "빈칸 채우기", idiom: "사자성어", strokeCount: "총획수", strokeOrder: "필순" };
+
+function hanjaQuestion(lv, type) {
+  if (!type) {
+    let r = Math.random() * 100;
+    type = HANJA_MIX.find(([, w]) => (r -= w) < 0)?.[0] || "meaning";
+  }
+  const q = HanjaTypes[type](lv);
+  q.tag = HANJA_TYPE_LABEL[type];
+  return q;
 }
 
 function wordQuestion(lv) {
@@ -95,7 +195,7 @@ function wordQuestion(lv) {
   const [en, ko] = pick(bank);
   if (Math.random() < 0.6)
     return choiceQuestion({ prompt: "이 단어의 뜻은?", answer: ko, pool: bank.map((x) => x[1]), big: en, speak: en, explain: `${en} = ${ko}` });
-  return choiceQuestion({ prompt: `'${ko}'을(를) 영어로 하면?`, answer: en, pool: bank.map((x) => x[0]), speak: en, explain: `${ko} = ${en}` });
+  return choiceQuestion({ prompt: `'${ko}'${eulReul(ko)} 영어로 하면?`, answer: en, pool: bank.map((x) => x[0]), speak: en, explain: `${ko} = ${en}` });
 }
 
 function talkQuestion(lv) {
@@ -125,7 +225,7 @@ function makeSession(subjectId, lv, count) {
   while (out.length < count && tries < count * 20) {
     tries++;
     const q = oneQuestion(subjectId, lv);
-    if (!out.some((o) => o.big === q.big && o.prompt === q.prompt && o.answer === q.answer)) out.push(q);
+    if (!out.some((o) => o.big === q.big && o.prompt === q.prompt && o.answer === q.answer && o.sentence === q.sentence)) out.push(q);
   }
   return out;
 }
@@ -139,4 +239,4 @@ function levelChange(rate, lv, maxLv) {
   return 0;
 }
 
-if (typeof module !== "undefined") module.exports = { SUBJECTS, oneQuestion, makeSession, levelChange, normalize };
+if (typeof module !== "undefined") module.exports = { SUBJECTS, oneQuestion, makeSession, levelChange, normalize, hanjaQuestion, HanjaTypes, HANJA_LEVEL_NAMES };
