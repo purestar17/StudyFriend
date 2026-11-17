@@ -5,7 +5,11 @@ const W = path.join(__dirname, "..") + "/";
 global.CONTENT = require(W + "content-data.js");
 global.HANJA_EXAM = require(W + "hanja-exam-data.js");
 global.STROKE_COUNTS = require(W + "stroke-counts.js");
-const { SUBJECTS, oneQuestion, makeSession, hanjaQuestion, HanjaTypes } = require(W + "logic.js");
+const L = require(W + "logic.js");
+const { SUBJECTS, oneQuestion, makeSession, hanjaQuestion, HanjaTypes } = L;
+global.MathGen = L.MathGen;
+const { mathQuestion, MATH_TYPES } = require(W + "math-workbook.js");
+global.mathQuestion = mathQuestion;
 
 let n = 0;
 const fail = (msg, q) => { throw new Error(msg + " " + JSON.stringify(q)); };
@@ -13,14 +17,14 @@ for (const s of SUBJECTS) for (let lv = 1; lv <= s.levels.length; lv++) for (let
   const q = oneQuestion(s.id, lv); n++;
   if (q.choices === null) {
     const v = Number(q.answer);
-    if (!Number.isInteger(v) || v < 0) fail("숫자 답", q);
+    if (!Number.isFinite(v) || v < 0 || (q.input !== "decimal" && !Number.isInteger(v))) fail("숫자 답", q);
     const m = /^(\d+) ([+\-×÷]) (\d+) = \?$/.exec(q.big);
     if (m) {
       const a = +m[1], b = +m[3];
       const e = { "+": a + b, "-": a - b, "×": a * b, "÷": a / b }[m[2]];
       if (String(e) !== q.answer) fail("수학 정답", q);
     }
-  } else if (new Set(q.choices).size !== 4 || !q.choices.includes(q.answer)) fail("보기", q);
+  } else if (new Set(q.choices).size !== q.choices.length || q.choices.length < (s.id === "MATH" ? 3 : 4) || !q.choices.includes(q.answer)) fail("보기", q);
 }
 for (let lv = 1; lv <= CONTENT.hanja.length; lv++) for (const t of Object.keys(HanjaTypes)) for (let i = 0; i < 300; i++) {
   const q = hanjaQuestion(lv, t); n++;
@@ -29,6 +33,26 @@ for (let lv = 1; lv <= CONTENT.hanja.length; lv++) for (const t of Object.keys(H
   if (t === "blank" && q.big.includes(q.answer)) fail("빈칸", q);
   if (t === "strokeOrder" && !(q.stroke && STROKE_COUNTS[q.stroke.char] > q.stroke.highlight)) fail("필순", q);
 }
+// 수학: 학년별 모든 유형
+const evalFrac = (t) => { const m = /^(\d+)\/(\d+)$/.exec(t); return m ? +m[1] / +m[2] : null; };
+for (const [lv, types] of Object.entries(MATH_TYPES)) for (const t of new Set(types)) for (let i = 0; i < 400; i++) {
+  const q = mathQuestion(+lv, t); n++;
+  if (!q.tag) fail("유형 이름 " + t, q);
+  if (/undefined|NaN|Infinity/.test(JSON.stringify(q))) fail("값 오류 " + t, q);
+  if (q.choices) {
+    if (new Set(q.choices).size !== q.choices.length || q.choices.length < 3 || !q.choices.includes(q.answer)) fail("보기 " + t, q);
+    // 분수 보기 중 정답과 값이 같은 오답이 없어야 함
+    const av = evalFrac(q.answer);
+    if (av !== null && q.choices.some((c) => c !== q.answer && evalFrac(c) === av)) fail("같은 값 분수 " + t, q);
+    if (q.choices.some((c) => /\/0$/.test(c))) fail("분모 0 " + t, q);
+  } else {
+    const v = Number(q.answer);
+    if (!Number.isFinite(v) || v < 0) fail("숫자 답 " + t, q);
+    if (q.input === "int" && !Number.isInteger(v)) fail("정수 답 " + t, q);
+  }
+  if (q.figure && q.figure.kind === "fraction" && !(q.figure.n < q.figure.d)) fail("분수 그림", q);
+}
+
 // 모든 급수 한자에 획순 데이터가 있어야 한다
 const fs = require("fs");
 const noStroke = [];
@@ -41,4 +65,19 @@ for (const [i, lv] of CONTENT.hanja.entries()) {
 }
 if (noStroke.length > 5) throw new Error("획순 없는 한자가 너무 많음: " + noStroke.join(""));
 for (const s of SUBJECTS) if (makeSession(s.id, 1, 10).length !== 10) throw new Error("세션 " + s.id);
-console.log(`통과: 문제 ${n}개 검사`);
+
+// 펜 손글씨 인식: 견본 숫자를 늘이고 기울여 써도 읽어야 한다
+const Pen = require(W + "pen.js");
+const warp = (strokes, ox, sx, sl) => strokes.map((st) => st.map(([x, y]) => [ox + (x - 50) * sx + sl * (y - 50), 100 + (y - 50) * 1.2]));
+const penMiss = [];
+let penAll = 0;
+for (const [d, vs] of Object.entries(Pen.TEMPLATES)) for (const v of vs) for (const sx of [0.8, 1, 1.2]) for (const sl of [-0.2, 0, 0.2]) {
+  const r = Pen.recognize(warp(v, 100, sx, sl), false);
+  penAll++;
+  if (r !== d) penMiss.push(`${d}→${r}`);
+}
+if (penMiss.length > penAll * 0.03) throw new Error("펜 인식 실패가 많음: " + penMiss.join(" "));
+const many = [...warp(Pen.TEMPLATES[3][0], 80, 1, 0), ...warp(Pen.TEMPLATES[7][0], 200, 1, 0), [[262, 150], [264, 152]], ...warp(Pen.TEMPLATES[5][0], 320, 1, 0)];
+if (Pen.recognize(many, true) !== "37.5") throw new Error("펜 소수 " + Pen.recognize(many, true));
+if (Pen.recognize(many, false) !== "375") throw new Error("펜 정수 " + Pen.recognize(many, false));
+console.log(`통과: 문제 ${n}개 검사, 펜 인식 견본 ${penAll - penMiss.length}/${penAll}`);

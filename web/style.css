@@ -16,6 +16,8 @@
   --korean: #d48a12;
   --stroke-faint: #ddd5c6;
   --grid-line: #e9b8ad;
+  --fig-fill: #f3c76b;
+  --fig-line: #b9b0a0;
   --font-display: "Jua", "Noto Sans KR", system-ui, sans-serif;
   --font-body: "Noto Sans KR", system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
   --font-hanja: "Noto Serif KR", "Batang", serif;
@@ -25,7 +27,7 @@
     --bg: #1b1a21; --panel: #26252e; --ink: #f1eee6; --muted: #aaa6b5; --line: #3a3844;
     --accent: #7ea2ff; --accent-ink: #10131c; --good: #5fcf8a; --bad: #ff7c7c;
     --math: #2f6fb8; --hanja: #a8412e; --word: #237a4c; --talk: #6a43ad; --korean: #a86c0b;
-    --stroke-faint: #4a4756; --grid-line: #6b3f37;
+    --stroke-faint: #4a4756; --grid-line: #6b3f37; --fig-fill: #b8862a; --fig-line: #6c6878;
     color-scheme: dark;
   }
 }
@@ -33,7 +35,7 @@
   --bg: #1b1a21; --panel: #26252e; --ink: #f1eee6; --muted: #aaa6b5; --line: #3a3844;
   --accent: #7ea2ff; --accent-ink: #10131c; --good: #5fcf8a; --bad: #ff7c7c;
   --math: #2f6fb8; --hanja: #a8412e; --word: #237a4c; --talk: #6a43ad; --korean: #a86c0b;
-  --stroke-faint: #4a4756; --grid-line: #6b3f37;
+  --stroke-faint: #4a4756; --grid-line: #6b3f37; --fig-fill: #b8862a; --fig-line: #6c6878;
   color-scheme: dark;
 }
 
@@ -213,3 +215,31 @@ input[type="text"], input[type="password"], input[type="url"] {
   .choices { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* 수학: 그림·분수·단위 */
+.fig-box { width: min(420px, 100%); background: var(--panel); border: 2px solid var(--line); border-radius: 16px; padding: 10px; }
+.figure { display: block; width: 100%; height: auto; max-height: 260px; }
+.big.long { font-size: clamp(26px, 4.4vw, 40px); }
+.frac { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; line-height: 1.05; margin: 0 .12em; font-size: .9em; }
+.frac .num { border-bottom: .07em solid currentColor; padding: 0 .15em; }
+.frac .den { padding: 0 .15em; }
+.prompt .frac, .feedback .frac, .muted .frac { font-size: .8em; }
+.entry .unit { font-size: 26px; font-weight: 600; margin-left: 8px; color: var(--muted); }
+.pad.decimal button.wide { grid-column: 1 / -1; }
+.mode-btn { border: 0; background: none; color: var(--muted); font-size: 16px; text-decoration: underline; padding: 6px; }
+.small { font-size: 14px; }
+
+/* 펜으로 쓰기 */
+.penpad { position: relative; width: min(560px, 100%); height: 200px; border-radius: 18px; background: var(--panel);
+  border: 3px dashed var(--c, var(--line)); touch-action: none; overflow: hidden;
+  background-image: linear-gradient(to bottom, transparent calc(50% - 1px), var(--line) calc(50% - 1px), var(--line) calc(50% + 1px), transparent calc(50% + 1px)); }
+.penpad canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+.pen-hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 20px; pointer-events: none; }
+.pen-entry { display: flex; align-items: baseline; gap: 10px; }
+.pen-entry .small { font-weight: 400; }
+.pen-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.pen-actions .btn { min-height: 52px; font-size: 18px; }
+.pen-tip { margin: 0; }
+.pen-hint[hidden] { display: none; }
+.choice .frac { font-size: 1.15em; }
+.btn:disabled { opacity: .45; cursor: default; }

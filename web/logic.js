@@ -211,7 +211,7 @@ function koreanQuestion(lv) {
 
 function oneQuestion(subjectId, lv) {
   switch (subjectId) {
-    case "MATH": return MathGen[Math.min(Math.max(lv, 1), 6)]();
+    case "MATH": return mathQuestion(lv);
     case "HANJA": return hanjaQuestion(lv);
     case "ENGLISH_WORD": return wordQuestion(lv);
     case "ENGLISH_TALK": return talkQuestion(lv);
@@ -230,7 +230,11 @@ function makeSession(subjectId, lv, count) {
   return out;
 }
 
-const normalize = (s) => String(s).trim().replace(/ /g, "").toLowerCase();
+const normalize = (s) => {
+  const t = String(s).trim().replace(/ /g, "").toLowerCase();
+  // 숫자 답은 값으로 비교 (예: 0.50 과 0.5)
+  return /^-?\d+(\.\d+)?$/.test(t) ? String(Number(t)) : t;
+};
 
 /** 정답률에 따른 레벨 변화: +1, -1, 0 */
 function levelChange(rate, lv, maxLv) {
@@ -239,4 +243,4 @@ function levelChange(rate, lv, maxLv) {
   return 0;
 }
 
-if (typeof module !== "undefined") module.exports = { SUBJECTS, oneQuestion, makeSession, levelChange, normalize, hanjaQuestion, HanjaTypes, HANJA_LEVEL_NAMES };
+if (typeof module !== "undefined") module.exports = { MathGen, SUBJECTS, oneQuestion, makeSession, levelChange, normalize, hanjaQuestion, HanjaTypes, HANJA_LEVEL_NAMES };

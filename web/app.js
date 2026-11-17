@@ -17,6 +17,7 @@
     get ai() { return store.get("ai", "NONE"); }, set ai(v) { store.set("ai", v); },
     get relay() { return store.get("relay", ""); }, set relay(v) { store.set("relay", v); },
     get realtime() { return store.get("realtime", false); }, set realtime(v) { store.set("realtime", v); },
+    get penInput() { return store.get("penInput", true); }, set penInput(v) { store.set("penInput", v); },
     level(id) { const s = subjectById(id); return Math.min(Math.max(store.get("level." + id, 1), 1), s.levels.length); },
     setLevel(id, lv) { store.set("level." + id, lv); },
   };
@@ -54,6 +55,15 @@
     return el;
   }
   const colorOf = (id) => `var(${COLORS[id]})`;
+  /** 수학 글자 속 분수(3/4)를 위아래로 쌓아 보여 준다 */
+  function mathText(text) {
+    const parts = String(text).split(/(\d+\/\d+)/);
+    if (parts.length === 1) return text;
+    return parts.filter((p) => p !== "").map((p) => {
+      const m = /^(\d+)\/(\d+)$/.exec(p);
+      return m ? h("span", { class: "frac", role: "math", "aria-label": `${m[2]}분의 ${m[1]}` }, h("span", { class: "num" }, m[1]), h("span", { class: "den" }, m[2])) : p;
+    });
+  }
 
   // ---- 상태 ----
   let screen = { name: "home" };
@@ -64,7 +74,7 @@
 
   function startQuiz(id) {
     const lv = settings.level(id);
-    go({ name: "quiz", q: { subject: id, level: lv, questions: makeSession(id, lv, settings.perSession), index: 0, correct: 0, answered: null, input: "", wrong: [], startedAt: Date.now() } });
+    go({ name: "quiz", q: { subject: id, level: lv, questions: makeSession(id, lv, settings.perSession), index: 0, correct: 0, answered: null, input: "", pen: [], penText: "", wrong: [], startedAt: Date.now() } });
     const first = screen.q.questions[0];
     if (first.speak && first.big === first.speak) speak(first.speak);
   }
@@ -83,7 +93,7 @@
   function next() {
     const s = screen.q;
     if (s.index < s.questions.length - 1) {
-      s.index++; s.answered = null; s.input = ""; render();
+      s.index++; s.answered = null; s.input = ""; s.pen = []; s.penText = ""; render();
       const q = s.questions[s.index];
       if (q.speak && q.big === q.speak) speak(q.speak);
       return;
@@ -129,40 +139,32 @@
     const done = s.index + (s.answered !== null ? 1 : 0);
     const ok = s.answered !== null && normalize(s.answered) === normalize(q.answer);
 
+    const isMath = s.subject === "MATH";
+    const tx = (t) => (isMath ? mathText(t) : t);
     const body = [];
     if (q.tag) body.push(h("span", { class: "qtag" }, q.tag));
-    body.push(h("div", { class: "prompt" }, q.prompt));
+    body.push(h("div", { class: "prompt" }, tx(q.prompt)));
     if (q.sentence) body.push(sentenceEl(q.sentence));
     if (q.stroke) body.push(strokeFigure(q.stroke.char, q.stroke.highlight, "exam"));
+    if (q.figure && window.renderFigure) body.push(renderFigure(q.figure));
     if (q.big || q.speak) {
       body.push(h("div", { class: "big-wrap" },
-        q.big ? h("div", { class: "big" + (isHanjaBig ? " hanja" : ""), lang: isHanjaBig ? "zh-Hant" : null }, q.big) : null,
+        q.big ? h("div", { class: "big" + (isHanjaBig ? " hanja" : "") + (isMath && String(q.big).length > 14 ? " long" : ""), lang: isHanjaBig ? "zh-Hant" : null }, tx(q.big)) : null,
         q.speak ? h("button", { class: "speak", "aria-label": "발음 듣기", onclick: () => speak(q.speak) }, "🔊") : null));
     }
     if (q.choices) {
       body.push(h("div", { class: "choices" }, q.choices.map((c) => {
         let cls = "choice" + (isHanjaChoice ? " hanja" : "");
         if (s.answered !== null) cls += c === q.answer ? " right" : c === s.answered ? " wrong" : " dim";
-        return h("button", { class: cls, disabled: s.answered !== null, onclick: () => answer(c) }, c);
+        return h("button", { class: cls, disabled: s.answered !== null, onclick: () => answer(c) }, tx(c));
       })));
     } else {
-      const shown = s.answered ?? (s.input || "?");
-      body.push(h("div", { class: "entry" + (s.answered === null ? "" : ok ? " right" : " wrong"), "aria-label": "입력한 답" }, shown));
-      const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "지우기", "0", "확인"];
-      body.push(h("div", { class: "pad" }, keys.map((k) => h("button", {
-        class: k.length > 1 ? "small" : null, disabled: s.answered !== null,
-        onclick: () => {
-          if (k === "지우기") s.input = s.input.slice(0, -1);
-          else if (k === "확인") { if (s.input) return answer(s.input); }
-          else if (s.input.length < 7) s.input += k;
-          render();
-        },
-      }, k))));
+      body.push(...answerInput(s, q, ok));
     }
     if (s.answered !== null) {
       body.push(h("div", { class: "feedback" },
-        h("strong", { class: ok ? "ok" : "no" }, ok ? "정답이에요!" : `아쉬워요. 정답은 ${q.answer}`),
-        q.explain ? h("span", { class: "muted" }, q.explain) : null));
+        h("strong", { class: ok ? "ok" : "no" }, ok ? "정답이에요!" : ["아쉬워요. 정답은 ", tx(q.answer), q.unit && !q.choices ? q.unit : ""]),
+        q.explain ? h("span", { class: "muted" }, tx(q.explain)) : null));
     }
     return [
       h("div", { class: "quiz-top", style: `--c:${colorOf(s.subject)}` },
@@ -173,6 +175,51 @@
       h("div", { class: "stage", style: `--c:${colorOf(s.subject)}` }, body),
       s.answered !== null ? h("button", { class: "next", style: `--c:${colorOf(s.subject)}`, onclick: next },
         s.index === s.questions.length - 1 ? "결과 보기" : "다음 문제") : null,
+    ];
+  }
+
+  /** 직접 쓰는 답: 펜(손글씨) 또는 숫자 키패드 */
+  function answerInput(s, q, ok) {
+    const decimal = q.input === "decimal";
+    const unit = q.unit ? h("span", { class: "unit" }, q.unit) : null;
+    if (s.answered !== null) {
+      return [h("div", { class: "entry " + (ok ? "right" : "wrong"), "aria-label": "입력한 답" }, s.answered, unit)];
+    }
+    const usePen = settings.penInput && typeof PenPad === "function";
+    const modeBtn = h("button", { class: "mode-btn", onclick: () => { settings.penInput = !usePen; render(); } }, usePen ? "⌨ 키패드로 입력" : "✏ 펜으로 쓰기");
+    if (usePen) {
+      const read = h("span", { class: "pen-read" }, s.penText || "?");
+      const okBtn = h("button", { class: "btn primary", disabled: !s.penText, onclick: () => { if (s.penText) answer(s.penText); } }, "확인");
+      const pad = PenPad({
+        strokes: s.pen, allowDecimal: decimal,
+        onChange: (_, text) => { s.penText = text; read.textContent = text || "?"; okBtn.disabled = !text; },
+      });
+      return [
+        h("div", { class: "entry pen-entry", "aria-live": "polite", "aria-label": "읽은 답" }, h("span", { class: "muted small" }, "읽은 답"), read, unit),
+        pad,
+        h("div", { class: "pen-actions" },
+          h("button", { class: "btn", onclick: () => { s.pen.pop(); s.penText = PenRecognizer.recognize(s.pen, decimal); render(); } }, "↶ 한 획 지우기"),
+          h("button", { class: "btn", onclick: () => { s.pen.length = 0; s.penText = ""; render(); } }, "다시 쓰기"),
+          okBtn),
+        h("p", { class: "muted small pen-tip" }, (decimal ? "소수점은 아래쪽에 작은 점(.)으로 찍어요. " : "") + "숫자를 한 글자씩 띄어서 크게 써요. 잘못 읽으면 다시 쓰거나 키패드를 써요."),
+        modeBtn,
+      ];
+    }
+    const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", decimal ? "." : "지우기", "0", decimal ? "⌫" : "확인"];
+    if (decimal) keys.push("확인");
+    return [
+      h("div", { class: "entry", "aria-label": "입력한 답" }, s.input || "?", unit),
+      h("div", { class: "pad" + (decimal ? " decimal" : "") }, keys.map((k) => h("button", {
+        class: (k.length > 1 ? "small" : "") + (k === "확인" && decimal ? " wide" : "") || null,
+        onclick: () => {
+          if (k === "지우기" || k === "⌫") s.input = s.input.slice(0, -1);
+          else if (k === "확인") { if (s.input) return answer(s.input); }
+          else if (k === ".") { if (!s.input.includes(".") && s.input) s.input += "."; }
+          else if (s.input.length < 7) s.input += k;
+          render();
+        },
+      }, k))),
+      modeBtn,
     ];
   }
 
@@ -412,6 +459,10 @@
         h("label", { for: "name" }, h("strong", {}, "학생 별칭")),
         h("div", { class: "row" }, h("input", { type: "text", id: "name", value: settings.name, maxlength: "10" }),
           h("button", { class: "btn", onclick: () => { settings.name = document.getElementById("name").value.trim() || "친구"; adminMsg = "별칭을 저장했어요"; render(); } }, "저장")),
+        h("div", { class: "setting" },
+          h("div", { class: "grow" }, h("strong", {}, "숫자 답을 펜으로 쓰기"),
+            h("p", {}, "켜면 수학의 숫자 답을 손글씨로 써요. 끄면 숫자 키패드를 보여 줘요. 문제 화면에서도 바꿀 수 있어요.")),
+          toggle(settings.penInput, (v) => (settings.penInput = v), "펜으로 쓰기")),
         h("strong", {}, "한 번에 푸는 문제 수"),
         h("div", { class: "chips" }, [5, 10, 15, 20].map((n) => h("button", { class: "chip", "aria-pressed": String(settings.perSession === n), onclick: () => { settings.perSession = n; render(); } }, `${n}문제`))),
         h("label", { for: "newpin" }, h("strong", {}, "관리자 비밀번호 변경 (숫자 4~8자리)")),
@@ -443,7 +494,9 @@
     const s = screen.q, q = s.questions[s.index];
     if (s.answered !== null) { if (e.key === "Enter") next(); return; }
     if (q.choices) { const i = Number(e.key) - 1; if (i >= 0 && i < q.choices.length) answer(q.choices[i]); return; }
+    if (settings.penInput && typeof PenPad === "function") { if (e.key === "Enter" && s.penText) answer(s.penText); return; }
     if (/^\d$/.test(e.key) && s.input.length < 7) { s.input += e.key; render(); }
+    else if (e.key === "." && q.input === "decimal" && s.input && !s.input.includes(".")) { s.input += "."; render(); }
     else if (e.key === "Backspace") { s.input = s.input.slice(0, -1); render(); }
     else if (e.key === "Enter" && s.input) answer(s.input);
   });
