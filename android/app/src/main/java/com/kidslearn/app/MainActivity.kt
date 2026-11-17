@@ -137,7 +137,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        web.onResume()
         evaluateLock()
+    }
+
+    override fun onPause() {
+        // 앱을 닫거나 다른 앱으로 갈 때 연습장을 그림으로 저장
+        web.evaluateJavascript("window.Notepad && Notepad.saveNow()", null)
+        web.onPause()
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -269,6 +277,30 @@ class MainActivity : ComponentActivity() {
             return true
         }
 
+        /** 연습장 그림을 갤러리 '공부친구' 앨범에 저장 (같은 이름이면 덮어씀). Android 10 이상 */
+        @JavascriptInterface
+        fun saveImage(name: String, base64: String): Boolean {
+            if (Build.VERSION.SDK_INT < 29) return false
+            return try {
+                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                val r = contentResolver
+                val col = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                val dir = "Pictures/공부친구/"
+                val existing = r.query(col, arrayOf(MediaStore.Images.Media._ID),
+                    "${MediaStore.Images.Media.DISPLAY_NAME}=? AND ${MediaStore.Images.Media.RELATIVE_PATH}=?", arrayOf(name, dir), null,
+                )?.use { c -> if (c.moveToFirst()) android.content.ContentUris.withAppendedId(col, c.getLong(0)) else null }
+                val uri = existing ?: r.insert(col, android.content.ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, dir)
+                }) ?: return false
+                r.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: return false
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
         @JavascriptInterface
         fun openExternal(url: String) = runOnUiThread { this@MainActivity.openExternal(url) }
 
@@ -289,6 +321,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val HOST = "appassets.androidplatform.net"
-        const val BuildConfigVersion = "0.2.1"
+        const val BuildConfigVersion = "0.2.2"
     }
 }

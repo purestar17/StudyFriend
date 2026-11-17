@@ -147,6 +147,12 @@ if (Pen.recognize(many, false) !== "375") throw new Error("펜 정수 " + Pen.re
   p = SC.taskProgress(sc, [...ses, { subject: "MATH", startedAt: t + 3000 }, { subject: "MATH", startedAt: t + 4000 }], since);
   eq([p.items[0].done, p.complete], [2, true], "완료");
   eq(SC.checkSchedule(sc), null, "올바름");
+  // 요일별 과제: 화요일은 국어 1회만, 토요일은 비워 두면 오류
+  const byDay = { ...sc, tasksByDay: { 1: { MATH: 1 }, 2: { KOREAN: 1 }, 3: { MATH: 1 }, 4: { MATH: 1 }, 5: { MATH: 1 }, 6: { MATH: 1 }, 7: {} } };
+  eq(SC.taskProgress(byDay, ses, since).items, [{ id: "KOREAN", need: 1, done: 0 }], "화요일 과제");
+  eq(SC.tasksFor(byDay, at(21, 10, 0)), { MATH: 1 }, "토요일 과제");
+  eq(SC.checkSchedule(byDay), null, "요일별 올바름");
+  if (SC.checkSchedule({ ...byDay, tasksByDay: { ...byDay.tasksByDay, 6: { MATH: 0 } } }) !== "토요일 과제를 하나 이상 정해 주세요") throw new Error("토요일 빈 과제 통과됨");
   if (!SC.checkSchedule({ ...sc, slots: [{ days: [], start: "16:00", end: "18:00" }] })) throw new Error("요일 없음 통과됨");
   if (!SC.checkSchedule({ ...sc, slots: [{ days: [1], start: "18:00", end: "16:00" }] })) throw new Error("거꾸로 시간 통과됨");
   if (!SC.checkSchedule({ ...sc, tasks: { MATH: 0 } })) throw new Error("과제 없음 통과됨");

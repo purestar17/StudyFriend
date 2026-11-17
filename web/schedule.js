@@ -28,10 +28,16 @@
     return null;
   }
 
+  /** 그 날(요일)의 과제. 요일별로 정해 두지 않았으면 공통 과제 */
+  function tasksFor(schedule, date = new Date()) {
+    const byDay = schedule.tasksByDay;
+    return (byDay && byDay[isoDay(date)]) || schedule.tasks || {};
+  }
+
   /** 과제 진행: 이 시간 칸이 시작된 뒤 끝낸 학습 횟수를 과목별로 센다 */
   function taskProgress(schedule, sessions, since) {
     const t = since ? since.getTime() : 0;
-    const items = Object.entries(schedule.tasks || {}).filter(([, n]) => n > 0).map(([id, need]) => {
+    const items = Object.entries(tasksFor(schedule, since || new Date())).filter(([, n]) => n > 0).map(([id, need]) => {
       const done = sessions.filter((x) => x.subject === id && x.startedAt >= t).length;
       return { id, need, done: Math.min(done, need) };
     });
@@ -45,11 +51,15 @@
       if (!x.days.length) return `${i + 1}번 시간에 요일을 골라 주세요`;
       if (!(toMin(x.end) > toMin(x.start))) return `${i + 1}번 시간: 끝나는 시각이 시작보다 늦어야 해요`;
     }
-    if (!Object.values(s.tasks).some((n) => n > 0)) return "오늘의 과제를 하나 이상 정해 주세요";
+    const days = [...new Set(s.slots.flatMap((x) => x.days))].sort();
+    for (const d of days) {
+      const t = (s.tasksByDay && s.tasksByDay[d]) || s.tasks || {};
+      if (!Object.values(t).some((n) => n > 0)) return `${DAY_NAMES[d]}요일 과제를 하나 이상 정해 주세요`;
+    }
     return null;
   }
 
-  const api = { DEFAULT_SCHEDULE, DAY_NAMES, activeSlot, taskProgress, checkSchedule, toMin };
+  const api = { DEFAULT_SCHEDULE, DAY_NAMES, activeSlot, taskProgress, tasksFor, checkSchedule, toMin, isoDay };
   if (typeof module !== "undefined") module.exports = api;
   else Object.assign(window, api);
 })();

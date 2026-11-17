@@ -1,6 +1,6 @@
 // 연습장: 화면 오른쪽 손잡이를 당기면 나오는 낙서·계산용 종이.
 // 배경(무지·밑줄·한자노트·영어노트)을 고르고 펜으로 마음대로 쓴다. 스타일러스는 누르는 힘에 따라 굵기가 달라진다.
-// 쓴 내용은 앱을 켜 둔 동안만 남는다 (저장하지 않음).
+// '새 종이'를 누르거나 앱을 닫으면 지금 종이를 그림(PNG)으로 저장한다 (기기 안 IndexedDB, 앱에서는 갤러리에도).
 (() => {
   const PAGES = [["plain", "무지"], ["lined", "밑줄"], ["hanja", "한자노트"], ["english", "영어노트"]];
   const PENS = [["#26252e", "검정"], ["#2f62d6", "파랑"], ["#d23c3c", "빨강"]];
@@ -11,6 +11,7 @@
   let page = get("page", "plain"), color = get("color", PENS[0][0]), size = get("size", 4), erasing = false;
   const strokes = []; // { color, size, erase, pts: [{x,y,p}] }
   let cur = null, penSeen = false, open = false;
+  let paperId = Date.now(), dirty = false;
 
   const el = (tag, attrs = {}, ...kids) => {
     const e = document.createElement(tag);
@@ -24,7 +25,8 @@
     el("span", { class: "grip", "aria-hidden": "true" }), el("span", { class: "label" }, "연습장"));
   const bg = el("canvas", { class: "pad-bg", "aria-hidden": "true" });
   const ink = el("canvas", { class: "pad-ink", role: "img", "aria-label": "연습장 쓰는 칸" });
-  const paper = el("div", { class: "pad-paper" }, bg, ink);
+  const tip = el("div", { class: "pad-toast", role: "status", "aria-live": "polite" });
+  const paper = el("div", { class: "pad-paper" }, bg, ink, tip);
   const bar = el("div", { class: "pad-bar", role: "toolbar", "aria-label": "연습장 도구" });
   const drawer = el("aside", { class: "notepad", id: "notepad", "aria-label": "연습장", "aria-hidden": "true" }, bar, paper);
   const wrap = el("div", { class: "notepad-wrap" }, handle, drawer);
@@ -42,17 +44,70 @@
         () => { size = s; set("size", s); buildBar(); }, { "aria-label": label })),
       chip("지우개", erasing, () => { erasing = !erasing; buildBar(); }));
     const acts = el("div", { class: "pad-group" },
-      el("button", { class: "pad-chip pad-undo", onclick: () => { strokes.pop(); redraw(); }, "aria-label": "되돌리기" }, "↶"),
-      el("button", { class: "pad-chip", onclick: clearAll }, clearArmed ? "한 번 더" : "모두 지우기"),
+      el("button", { class: "pad-chip pad-undo", onclick: () => { if (strokes.pop()) dirty = true; redraw(); }, "aria-label": "되돌리기" }, "↶"),
+      el("button", { class: "pad-chip pad-new", onclick: newPaper }, "새 종이"),
       el("button", { class: "pad-chip pad-close", onclick: () => toggle(false), "aria-label": "연습장 넣기" }, "✕"));
     bar.replaceChildren(pages, pens, acts);
   }
-  let clearArmed = false, clearTimer = 0;
-  function clearAll() {
-    if (!strokes.length) return;
-    if (!clearArmed) { clearArmed = true; buildBar(); clearTimeout(clearTimer); clearTimer = setTimeout(() => { clearArmed = false; buildBar(); }, 2500); return; }
-    clearArmed = false; strokes.length = 0; redraw(); buildBar();
+  let toastTimer = 0;
+  function toast(text) {
+    tip.textContent = text; tip.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => tip.classList.remove("show"), 1800);
   }
+  /** 지금 종이를 저장하고 빈 종이를 꺼낸다 */
+  async function newPaper() {
+    if (!strokes.length) return;
+    const saved = await saveNow();
+    strokes.length = 0; paperId = Date.now(); dirty = false; redraw();
+    toast(saved ? "앞 종이는 그림으로 저장했어요" : "새 종이예요");
+  }
+
+  // ---- 그림으로 저장 (IndexedDB 'studyfriend' / notepad) ----
+  const KEEP = 60;
+  let dbp = null;
+  function db() {
+    if (!dbp) dbp = new Promise((ok, fail) => {
+      const r = indexedDB.open("studyfriend", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("notepad", { keyPath: "id" });
+      r.onsuccess = () => ok(r.result); r.onerror = () => { dbp = null; fail(r.error); };
+    });
+    return dbp;
+  }
+  const tx = (mode, fn) => db().then((d) => new Promise((ok, fail) => {
+    const t = d.transaction("notepad", mode), st = t.objectStore("notepad"), out = fn(st);
+    t.oncomplete = () => ok(out && out.result); t.onerror = () => fail(t.error);
+  }));
+  function snapshot() {
+    const c = document.createElement("canvas");
+    c.width = bg.width; c.height = bg.height;
+    const x = c.getContext("2d");
+    x.fillStyle = getComputedStyle(paper).backgroundColor || "#fffdf8";
+    x.fillRect(0, 0, c.width, c.height);
+    x.drawImage(bg, 0, 0); x.drawImage(ink, 0, 0);
+    return c;
+  }
+  async function saveNow() {
+    if (!strokes.length || !dirty || !W) return false;
+    dirty = false;
+    const c = snapshot(), id = paperId;
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/png"));
+    try {
+      await tx("readwrite", (st) => st.put({ id, at: Date.now(), page, blob }));
+      const keys = await tx("readonly", (st) => st.getAllKeys());
+      if (keys.length > KEEP) await tx("readwrite", (st) => keys.sort((a, b) => a - b).slice(0, keys.length - KEEP).forEach((k) => st.delete(k)));
+    } catch { /* 저장 못 함 */ }
+    // 앱에서는 태블릿 갤러리에도 저장
+    try { if (window.StudyFriendApp && StudyFriendApp.saveImage) StudyFriendApp.saveImage(`연습장-${id}.png`, c.toDataURL("image/png").split(",")[1]); } catch { /* 무시 */ }
+    return true;
+  }
+  async function list() {
+    const all = await tx("readonly", (st) => st.getAll());
+    return (all || []).sort((a, b) => b.at - a.at);
+  }
+  const remove = (id) => tx("readwrite", (st) => st.delete(id));
+  // 앱을 닫거나 다른 앱으로 갈 때 저장
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveNow(); });
+  window.addEventListener("pagehide", () => saveNow());
 
   // ---- 종이 그리기 ----
   let W = 0, H = 0, dpr = 1;
@@ -134,7 +189,7 @@
     for (const x of (e.getCoalescedEvents && e.getCoalescedEvents().length ? e.getCoalescedEvents() : [e])) cur.pts.push(pt(x));
     drawStroke(ink.getContext("2d"), cur, n);
   });
-  const end = (e) => { if (cur && e.pointerId === cur.id) { if (strokes.length > 300) strokes.shift(); cur = null; } };
+  const end = (e) => { if (cur && e.pointerId === cur.id) { if (strokes.length > 2000) strokes.shift(); cur = null; dirty = true; } };
   ink.addEventListener("pointerup", end);
   ink.addEventListener("pointercancel", end);
 
@@ -182,5 +237,5 @@
   document.body.append(wrap);
   if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => sizeCanvas()).observe(paper);
   requestAnimationFrame(sizeCanvas);
-  window.Notepad = { open: () => toggle(true), close: () => toggle(false), get strokes() { return strokes.length; } };
+  window.Notepad = { open: () => toggle(true), close: () => toggle(false), saveNow, list, remove, newPaper, get strokes() { return strokes.length; } };
 })();

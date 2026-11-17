@@ -364,3 +364,54 @@ textarea#bookWords { width: 100%; font: inherit; font-size: 16px; border-radius:
 :root[data-theme="dark"] .pad-paper { background: #ece8de; }
 @media (prefers-reduced-motion: reduce) { .notepad-wrap { transition: none; } }
 .pad-undo { font-size: 22px; }
+.pad-toast { position: absolute; left: 50%; bottom: 18px; transform: translate(-50%, 10px); background: var(--ink); color: var(--bg); padding: 8px 16px; border-radius: 99px; font-size: 15px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; white-space: nowrap; }
+.pad-toast.show { opacity: .92; transform: translate(-50%, 0); }
+.pad-new { font-weight: 700; }
+
+/* 결과: 문제별 ○✕와 다시 풀기 */
+.marks { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 10px; }
+.mark-cell { width: 44px; height: 50px; border-radius: 10px; border: 1px solid var(--line); display: grid; place-items: center; font-size: 20px; line-height: 1; padding-top: 3px; }
+.mark-cell small { font-size: 11px; color: var(--muted); }
+.mark-cell.o { color: var(--good); } .mark-cell.x { color: var(--bad); border-color: var(--bad); } .mark-cell.fixed { color: var(--accent); }
+.retry-list { display: grid; gap: 8px; margin-top: 8px; }
+.retry-item { display: flex; align-items: center; gap: 12px; text-align: left; min-height: 56px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 17px; }
+.retry-item .no { font-weight: 800; color: var(--bad); min-width: 3em; }
+.retry-item .grow { display: flex; flex-direction: column; min-width: 0; }
+.retry-item .q { font-weight: 700; overflow-wrap: anywhere; }
+.retry-item .muted { font-size: 14px; }
+.retry-item .state { color: var(--accent); font-weight: 700; white-space: nowrap; }
+.retry-item.fixed { opacity: .65; } .retry-item.fixed .no, .retry-item.fixed .state { color: var(--good); }
+.retry-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.retry-actions .next { flex: 1; }
+
+/* 관리자: 오답 노트, 연습장 보관함 */
+.notes { display: grid; gap: 8px; }
+.note-item { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.note-item summary { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; }
+.note-item .tagc { background: var(--c); color: #fff; border-radius: 99px; padding: 2px 10px; font-size: 13px; white-space: nowrap; }
+.note-item .q { overflow-wrap: anywhere; }
+.note-item .state { color: var(--bad); font-weight: 700; white-space: nowrap; }
+.note-item.fixed .state { color: var(--good); }
+.note-body { padding: 0 14px 14px; display: grid; gap: 10px; }
+.stage.mini { border: 1px dashed var(--line); border-radius: 12px; padding: 12px; gap: 10px; }
+.stage.mini .big { font-size: 40px; }
+.note-body .bad { color: var(--bad); } .note-body .good { color: var(--good); }
+.pad-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.pad-gallery figure { margin: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); }
+.pad-gallery img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; object-position: top; background: #fffdf8; }
+.pad-gallery figcaption { display: flex; align-items: center; gap: 6px; padding: 8px; font-size: 13px; }
+
+/* 요일별 과제: 왼쪽 세로 요일 메뉴 (선택된 요일에 세로 밑줄) */
+.day-tasks { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 14px; align-items: start; }
+.day-menu { display: flex; flex-direction: column; border-right: 2px solid var(--line); }
+.day-tab { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 8px 10px; min-height: 52px; background: none; border: none; color: var(--ink); text-align: left; }
+.day-tab .dn { font-size: 18px; font-weight: 800; }
+.day-tab .sum { font-size: 12px; color: var(--muted); }
+.day-tab.off .dn { color: var(--muted); font-weight: 600; }
+.day-tab[aria-selected="true"] { color: var(--accent); }
+.day-tab[aria-selected="true"] .dn { color: var(--accent); }
+.day-tab[aria-selected="true"]::after { content: ""; position: absolute; right: -2px; top: 6px; bottom: 6px; width: 4px; border-radius: 2px; background: var(--accent); }
+.day-panel { display: grid; gap: 6px; }
+.day-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.copy-days { justify-self: start; margin-top: 6px; }
+.small { font-size: 13px; }
