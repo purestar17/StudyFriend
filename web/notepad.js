@@ -228,7 +228,7 @@
   ink.addEventListener("pointercancel", end);
 
   // ---- 꺼내기·넣기: 손잡이를 누르거나 왼쪽으로 당긴다. 당긴 만큼만 나와 있다 ----
-  const CLOSE_PX = 40;
+  const CLOSE_PX = 40, FLICK_MS = 200;
   const MIN_PART = () => Math.min(1, 280 / maxW());
   const setShown = (v) => wrap.style.setProperty("--shown", v.toFixed(3));
   function toggle(on, part) {
@@ -247,7 +247,7 @@
   }
   let drag = null;
   handle.addEventListener("pointerdown", (e) => {
-    drag = { x: e.clientX, id: e.pointerId, moved: false, wasOpen: open, start: open ? shownPart : 0, now: open ? shownPart : 0 };
+    drag = { x: e.clientX, id: e.pointerId, moved: false, wasOpen: open, start: open ? shownPart : 0, now: open ? shownPart : 0, track: [[e.timeStamp, e.clientX]] };
     try { handle.setPointerCapture(e.pointerId); } catch { /* 무시 */ }
     wrap.classList.add("dragging");
   });
@@ -256,18 +256,24 @@
     const dx = e.clientX - drag.x;
     if (Math.abs(dx) > 6) drag.moved = true;
     drag.now = Math.min(1, Math.max(0, drag.start - dx / maxW()));
+    drag.track.push([e.timeStamp, e.clientX]);
+    if (drag.track.length > 30) drag.track.shift();
     setShown(drag.now);
   });
   const release = (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     wrap.classList.remove("dragging");
-    const { moved, now, start, x: drag0x, wasOpen } = drag; drag = null;
+    const { moved, now, track } = drag; drag = null;
     if (!moved) { setShown(open ? shownPart : 0); return; } // 그냥 누르면 click에서 처리
-    // 열린 연습장을 오른쪽으로 40px 넘게 밀면 닫는다. 덜 밀면 원래 자리로
-    const dx = e.clientX - drag0x;
-    if (wasOpen && dx >= CLOSE_PX) toggle(false);
-    else if (wasOpen && dx > 0) toggle(true, start);
-    else if (now < 0.12) toggle(false); else toggle(true, now);
+    // 닫기와 크기 줄이기를 속도로 나눈다:
+    // 손을 떼기 직전 FLICK_MS 동안 오른쪽으로 CLOSE_PX 넘게 휙 밀었으면 닫고, 천천히 끌었으면 놓은 자리에 멈춘다.
+    // 최소 크기보다 CLOSE_PX 더 밀어도 닫는다.
+    const t = e.timeStamp, x = e.clientX;
+    const past = track.find(([tt]) => t - tt <= FLICK_MS) || track[track.length - 1];
+    const flick = x - past[1] >= CLOSE_PX;
+    const minPart = MIN_PART(), pastMin = now * maxW() <= minPart * maxW() - CLOSE_PX;
+    if (flick || pastMin) toggle(false);
+    else toggle(true, Math.max(minPart, now));
     handle.dataset.skipClick = "1";
   };
   handle.addEventListener("pointerup", release);
