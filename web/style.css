@@ -352,7 +352,14 @@ textarea#bookWords { width: 100%; font: inherit; font-size: 16px; border-radius:
 .pad-bar::-webkit-scrollbar { display: none; }
 .pad-row { display: flex; flex-wrap: nowrap; gap: 12px; align-items: center; width: max-content; }
 .pad-group { display: flex; gap: 4px; flex-wrap: nowrap; align-items: center; flex: none; }
-.pad-size { height: 32px; padding: 0 8px; border-radius: 99px; font-size: 13px; width: auto; }
+.pad-chip.pad-size { gap: 6px; padding: 0 8px 0 12px; }
+.pad-chip.pad-size .line { width: 26px; }
+.pad-size .caret { font-size: 10px; opacity: .7; }
+.notepad { position: relative; }
+.pad-size-menu { position: absolute; z-index: 5; display: grid; gap: 4px; padding: 6px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 8px 24px rgb(0 0 0 / .18); }
+.pad-size-opt { width: 72px; height: 36px; border-radius: 10px; border: 1px solid transparent; background: none; color: var(--ink); display: grid; place-items: center; }
+.pad-size-opt .line { width: 44px; border-radius: 4px; background: currentColor; }
+.pad-size-opt[aria-selected="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .pad-chip { height: 32px; min-width: 32px; padding: 0 10px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 13px; line-height: 1; white-space: nowrap; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .pad-chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .pad-chip .dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 2px var(--panel); }
@@ -524,3 +531,14 @@ select { width: auto; padding-right: 8px; }
 .prize-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .prize-line:last-child { border-bottom: 0; }
 .prize-line .when { width: 42px; }
+
+/* 토스트 안내 */
+.toast { position: fixed; left: 50%; bottom: 28px; z-index: 120; transform: translate(-50%, 20px); max-width: min(520px, calc(100vw - 32px));
+  padding: 12px 20px; border-radius: 14px; background: #26252e; color: #fff; font-size: 16px; font-weight: 600; text-align: center;
+  box-shadow: 0 10px 30px rgb(0 0 0 / .25); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+:root[data-theme="dark"] .toast { background: #f1eee6; color: #1b1a21; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .toast { background: #f1eee6; color: #1b1a21; } }
+.modal input[type="password"] { width: 100%; font-size: 20px; letter-spacing: 4px; text-align: center; }
+.modal .bad { color: var(--bad); min-height: 1em; }
+.modal .bad:empty { display: none; }

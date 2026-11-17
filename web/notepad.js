@@ -37,12 +37,31 @@
   function chip(label, pressed, onclick, extra = {}) {
     return el("button", { class: "pad-chip", "aria-pressed": String(pressed), onclick, ...extra }, label);
   }
-  /** 선 굵기: 드롭다운 하나 */
+  /** 선 굵기: 지금 굵기를 그림으로 보여 주는 버튼 → 누르면 굵기 그림 목록이 펼쳐진다 */
+  const lineImg = (s) => el("span", { class: "line", style: `height:${Math.max(2, Math.round(s))}px` });
+  let sizeMenu = null;
+  function closeSizeMenu() { if (sizeMenu) { sizeMenu.remove(); sizeMenu = null; } }
   function sizeSelect() {
-    const sel = el("select", { class: "pad-size", "aria-label": "선 굵기", onchange: (e) => { size = Number(e.target.value); erasing = false; set("size", size); buildBar(); } },
-      ...SIZES.map(([s, label]) => { const o = el("option", { value: String(s) }, label); if (s === size) o.selected = true; return o; }));
-    return sel;
+    const cur = SIZES.find(([v]) => v === size) || SIZES[1];
+    const btn = el("button", { class: "pad-chip pad-size", "aria-haspopup": "listbox", "aria-expanded": "false", "aria-label": `선 굵기: ${cur[1]}`, onclick: (e) => {
+      e.stopPropagation();
+      if (sizeMenu) return closeSizeMenu();
+      const d = drawer.getBoundingClientRect(), b = btn.getBoundingClientRect();
+      sizeMenu = el("div", { class: "pad-size-menu", role: "listbox", "aria-label": "선 굵기", style: `left:${b.left - d.left}px;top:${b.bottom - d.top + 4}px` },
+        ...SIZES.map(([v, label]) => {
+          const o = el("button", { class: "pad-size-opt", role: "option", "aria-selected": String(v === size), "aria-label": label, onclick: (ev) => {
+            ev.stopPropagation(); size = v; erasing = false; set("size", v); closeSizeMenu(); buildBar();
+          } }, lineImg(v));
+          return o;
+        }));
+      drawer.append(sizeMenu);
+      btn.setAttribute("aria-expanded", "true");
+      sizeMenu.querySelector('[aria-selected="true"]')?.focus();
+    } }, lineImg(cur[0]), el("span", { class: "caret", "aria-hidden": "true" }, "▾"));
+    return btn;
   }
+  document.addEventListener("pointerdown", (e) => { if (sizeMenu && !sizeMenu.contains(e.target)) closeSizeMenu(); }, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sizeMenu) { e.stopPropagation(); closeSizeMenu(); } }, true);
   function buildBar() {
     const pages = el("div", { class: "pad-group", role: "group", "aria-label": "배경" },
       ...PAGES.map(([id, label]) => chip(label, page === id, () => { page = id; set("page", id); buildBar(); drawBg(); })));

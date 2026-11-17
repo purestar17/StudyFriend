@@ -878,6 +878,35 @@
     return svg;
   }
 
+  /** 잠깐 떴다 사라지는 안내 (관리자 저장 안내 등) */
+  let toastEl = null, toastTimer = 0;
+  function showToast(text) {
+    if (!toastEl) { toastEl = h("div", { class: "toast", role: "status", "aria-live": "polite" }); document.body.append(toastEl); }
+    toastEl.textContent = text;
+    toastEl.classList.remove("show"); void toastEl.offsetWidth; toastEl.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2600);
+  }
+
+  /** 보호자 확인: 관리자 비밀번호가 맞으면 true */
+  function pinModal({ title, text }) {
+    return new Promise((resolve) => {
+      const prev = document.activeElement;
+      const close = (v) => { back.remove(); document.removeEventListener("keydown", onKey, true); try { prev && prev.focus(); } catch { /* 무시 */ } resolve(v); };
+      const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(false); } };
+      const err = h("p", { class: "bad", "aria-live": "polite" });
+      const input = h("input", { type: "password", inputmode: "numeric", maxlength: "8", autocomplete: "off", "aria-label": "관리자 비밀번호" });
+      const check = () => { if (input.value === settings.pin) close(true); else { err.textContent = "비밀번호가 틀렸어요"; input.value = ""; input.focus(); } };
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") check(); });
+      const back = h("div", { class: "modal-back", onclick: (e) => { if (e.target === back) close(false); } },
+        h("div", { class: "modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "modal-title" },
+          h("h2", { id: "modal-title" }, title), text ? h("p", {}, text) : null, input, err,
+          h("div", { class: "row" }, h("button", { class: "btn", onclick: () => close(false) }, "취소"), h("button", { class: "btn primary", onclick: check }, "확인"))));
+      document.body.append(back);
+      document.addEventListener("keydown", onKey, true);
+      input.focus();
+    });
+  }
+
   /** 확인 창: 예 → true, 아니요·바깥 누르기·Esc → false */
   function confirmModal({ title, text, ok = "확인", cancel = "취소", danger = false }) {
     return new Promise((resolve) => {
@@ -1051,7 +1080,9 @@
         return card(p, h("span", { class: "prize-act" }, h("button", { class: "btn small-btn primary", disabled: !u.ok, onclick: () => use(p) }, "쓰기"), u.ok ? null : h("span", { class: "muted small" }, u.why)));
       })) : null,
       gifts.length ? h("section", { class: "prize-group" }, h("h2", {}, "받을 선물"), h("p", { class: "muted", style: "margin:0" }, "보호자에게 보여 주세요."),
-        gifts.map((p) => card(p, h("span", { class: "prize-act muted small" }, "기다리는 중")))) : null,
+        gifts.map((p) => card(p, h("span", { class: "prize-act" }, h("button", { class: "btn small-btn", onclick: () =>
+          pinModal({ title: "보호자 확인", text: `'${p.text}'을(를) 주셨나요? 관리자 비밀번호를 넣으면 지급한 것으로 표시해요.` })
+            .then((ok) => { if (!ok) return; prizes.update(p.id, { givenAt: Date.now() }); showToast(`'${p.text}' 지급 완료!`); render(); }) }, "보호자 확인"))))) : null,
       past.length ? h("section", { class: "prize-group" }, h("h2", {}, "지난 포상"), past.map((p) => card(p, null))) : null,
     ];
   }
@@ -1080,7 +1111,7 @@
     return h("div", { class: "section" },
       h("div", { class: "setting" },
         h("div", { class: "grow" }, h("strong", {}, "포상 쓰기"),
-          h("p", {}, "학습을 끝내면 정해 둔 확률로 포상이 나와요. 면제권은 아이가 보관함에서 골라 쓰고, 직접 쓴 포상은 보호자가 주고 '줬어요'를 눌러요.")),
+          h("p", {}, "학습을 끝내면 정해 둔 확률로 포상이 나와요. 면제권은 아이가 보관함에서 골라 쓰고, 직접 쓴 포상은 보호자가 주고 여기서 '지급'을 누르거나 아이 보관함에서 '보호자 확인'을 해요.")),
         toggle(d.enabled, (v) => (d.enabled = v), "포상 쓰기")),
       h("strong", {}, "포상이 나오는 때"),
       h("div", { class: "chips" },
@@ -1102,8 +1133,8 @@
         h("span", { class: "muted small when" }, dt(p.at)),
         h("span", { class: "grow" }, prizeMark(p), " ", prizeName(p)),
         p.type === "text"
-          ? h("button", { class: "chip", "aria-pressed": String(!!p.givenAt), onclick: () => { prizes.update(p.id, { givenAt: p.givenAt ? null : Date.now() }); render(); } }, p.givenAt ? `${dt(p.givenAt)} 줬어요` : "줬어요")
-          : h("span", { class: "muted small" }, p.usedAt ? `${dt(p.usedAt)} 씀` : "안 씀"),
+          ? h("button", { class: "chip", "aria-pressed": String(!!p.givenAt), onclick: () => { prizes.update(p.id, { givenAt: p.givenAt ? null : Date.now() }); render(); } }, p.givenAt ? `${dt(p.givenAt)} 지급` : "지급")
+          : h("span", { class: "muted small" }, p.usedAt ? `${dt(p.usedAt)} 사용` : "미사용"),
         h("button", { class: "icon-sm danger", "aria-label": "포상 지우기", title: "지우기", onclick: () =>
           confirmModal({ title: "포상을 지울까요?", text: `${prizeName(p)}을(를) 보관함에서 빼요.${p.usedAt ? " 오늘 쓴 면제권이면 면제도 함께 취소돼요." : ""}`, ok: "지우기", danger: true })
             .then((yes) => { if (yes) { prizes.remove(p.id); render(); } }) }, icon("x")))))
@@ -1395,10 +1426,10 @@
           } }, "변경")));
     }
     if (content && content.classList && content.classList.contains("section")) frameSections(content);
+    if (adminMsg) { showToast(adminMsg); adminMsg = ""; }
     return [
       h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "나가기", onclick: () => go({ name: "home" }) }, "←"), h("h1", { style: "font-size:28px" }, "관리자 모드")),
       tabStrip(h("div", { class: "tabs", role: "tablist" }, tabs.map((t, i) => h("button", { class: "tab", role: "tab", "aria-selected": String(tab === i), onclick: () => setTab(i) }, t)))),
-      adminMsg ? h("div", { class: "msg" }, adminMsg) : null,
       content,
     ];
   }
