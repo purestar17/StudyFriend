@@ -415,3 +415,9 @@ textarea#bookWords { width: 100%; font: inherit; font-size: 16px; border-radius:
 .day-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .copy-days { justify-self: start; margin-top: 6px; }
 .small { font-size: 13px; }
+
+/* 탭 줄: 더 있는 쪽 끝을 흐리게 (밀 수 있다는 표시) */
+.tabs { scrollbar-width: none; --fl: 0px; --fr: 0px; -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%); mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%); }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs.fade-l { --fl: 56px; }
+.tabs.fade-r { --fr: 56px; }

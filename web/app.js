@@ -858,6 +858,27 @@
       device);
   }
 
+  /** 탭 줄이 화면보다 길면 밀 수 있는 쪽 끝을 흐리게 한다. 다시 그려도 밀어 둔 위치를 지킨다 */
+  let tabScroll = 0;
+  function tabStrip(el) {
+    const update = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      el.classList.toggle("fade-l", el.scrollLeft > 2);
+      el.classList.toggle("fade-r", el.scrollLeft < max - 2);
+    };
+    el.addEventListener("scroll", () => { tabScroll = el.scrollLeft; update(); }, { passive: true });
+    requestAnimationFrame(() => {
+      el.scrollLeft = tabScroll;
+      // 고른 탭이 가려져 있으면 보이게
+      const sel = el.querySelector('[aria-selected="true"]');
+      if (sel && (sel.offsetLeft < el.scrollLeft || sel.offsetLeft + sel.offsetWidth > el.scrollLeft + el.clientWidth)) el.scrollLeft = sel.offsetLeft - 24;
+      tabScroll = el.scrollLeft;
+      update();
+    });
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(update).observe(el);
+    return el;
+  }
+
   function Admin() {
     const tabs = ["학습 레벨", "학습 기록", "오답 노트", "연습장", "영어 단어장", "영어 회화", "학습 시간표", "AI 설정", "일반"];
     const tab = screen.tab, name = tabs[tab];
@@ -1042,7 +1063,7 @@
     }
     return [
       h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "나가기", onclick: () => go({ name: "home" }) }, "←"), h("h1", { style: "font-size:28px" }, "관리자 모드")),
-      h("div", { class: "tabs", role: "tablist" }, tabs.map((t, i) => h("button", { class: "tab", role: "tab", "aria-selected": String(tab === i), onclick: () => setTab(i) }, t))),
+      tabStrip(h("div", { class: "tabs", role: "tablist" }, tabs.map((t, i) => h("button", { class: "tab", role: "tab", "aria-selected": String(tab === i), onclick: () => setTab(i) }, t)))),
       adminMsg ? h("div", { class: "msg" }, adminMsg) : null,
       content,
     ];
