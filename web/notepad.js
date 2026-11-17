@@ -4,7 +4,7 @@
 (() => {
   const PAGES = [["plain", "무지"], ["lined", "밑줄"], ["hanja", "한자노트"], ["english", "영어노트"]];
   const PENS = [["#26252e", "검정"], ["#2f62d6", "파랑"], ["#d23c3c", "빨강"]];
-  const SIZES = [[2.2, "가는 펜"], [4, "보통 펜"], [7, "굵은 펜"]];
+  const SIZES = [[2.2, "가는 선"], [4, "보통 선"], [7, "굵은 선"]];
   const get = (k, d) => { try { const v = localStorage.getItem("sf.pad." + k); return v === null ? d : JSON.parse(v); } catch { return d; } };
   const set = (k, v) => { try { localStorage.setItem("sf.pad." + k, JSON.stringify(v)); } catch { /* 무시 */ } };
 
@@ -37,23 +37,28 @@
   function chip(label, pressed, onclick, extra = {}) {
     return el("button", { class: "pad-chip", "aria-pressed": String(pressed), onclick, ...extra }, label);
   }
+  /** 선 굵기: 드롭다운 하나 */
+  function sizeSelect() {
+    const sel = el("select", { class: "pad-size", "aria-label": "선 굵기", onchange: (e) => { size = Number(e.target.value); erasing = false; set("size", size); buildBar(); } },
+      ...SIZES.map(([s, label]) => { const o = el("option", { value: String(s) }, label); if (s === size) o.selected = true; return o; }));
+    return sel;
+  }
   function buildBar() {
     const pages = el("div", { class: "pad-group", role: "group", "aria-label": "배경" },
       ...PAGES.map(([id, label]) => chip(label, page === id, () => { page = id; set("page", id); buildBar(); drawBg(); })));
     const pens = el("div", { class: "pad-group", role: "group", "aria-label": "펜" },
       ...PENS.map(([c, label]) => chip(el("span", { class: "dot", style: `background:${c}` }), !erasing && color === c,
         () => { color = c; erasing = false; set("color", c); buildBar(); }, { "aria-label": label + " 펜" })),
-      ...SIZES.map(([s, label]) => chip(el("span", { class: "line", style: `height:${s}px` }), size === s,
-        () => { size = s; set("size", s); buildBar(); }, { "aria-label": label })),
+      sizeSelect(),
       chip("지우개", erasing, () => { erasing = !erasing; buildBar(); }));
     const acts = el("div", { class: "pad-group pad-acts" },
       el("button", { class: "pad-chip pad-undo", onclick: () => { if (strokes.pop()) dirty = true; redraw(); }, "aria-label": "되돌리기" }, "↶"),
       el("button", { class: "pad-chip pad-see", "aria-pressed": String(seeThrough), onclick: () => { seeThrough = !seeThrough; set("see", seeThrough); applySee(); buildBar(); },
         title: "뒤에 있는 문제가 비쳐 보여요" }, "비치게"),
       el("button", { class: "pad-chip pad-new", onclick: newPaper }, "새 종이"));
-    // 버튼 자리는 고정: 1줄 = 되돌리기·비치게·새 종이 | 배경, 2줄 = 펜 색·굵기·지우개 (연습장 폭이 바뀌어도 줄바꿈하지 않음)
+    // 버튼 자리는 고정: 1줄 = 되돌리기·비치게·새 종이, 2줄 = 배경, 3줄 = 펜 색·굵기(드롭다운)·지우개 (연습장 폭이 바뀌어도 줄바꿈하지 않음)
     pages.classList.add("pad-pages"); pens.classList.add("pad-pens");
-    bar.replaceChildren(el("div", { class: "pad-row" }, acts, pages), el("div", { class: "pad-row" }, pens));
+    bar.replaceChildren(el("div", { class: "pad-row" }, acts), el("div", { class: "pad-row" }, pages), el("div", { class: "pad-row" }, pens));
   }
   let toastTimer = 0;
   function toast(text) {

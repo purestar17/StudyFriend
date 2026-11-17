@@ -352,7 +352,7 @@ textarea#bookWords { width: 100%; font: inherit; font-size: 16px; border-radius:
 .pad-bar::-webkit-scrollbar { display: none; }
 .pad-row { display: flex; flex-wrap: nowrap; gap: 12px; align-items: center; width: max-content; }
 .pad-group { display: flex; gap: 4px; flex-wrap: nowrap; align-items: center; flex: none; }
-.pad-acts { padding-right: 12px; border-right: 1px solid var(--line); }
+.pad-size { height: 32px; padding: 0 8px; border-radius: 99px; font-size: 13px; width: auto; }
 .pad-chip { height: 32px; min-width: 32px; padding: 0 10px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 13px; line-height: 1; white-space: nowrap; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .pad-chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .pad-chip .dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 2px var(--panel); }
