@@ -309,3 +309,28 @@ textarea#bookWords { width: 100%; font: inherit; font-size: 16px; border-radius:
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ocr-msg { padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--word) 12%, var(--panel)); }
 .word-row input.need { border-color: var(--bad); }
+
+/* 학습 시간 (시간표) */
+.study-banner { background: var(--accent); color: var(--accent-ink); border-radius: 14px; padding: 12px 18px; font-weight: 700; font-size: 17px; }
+.study-banner.done { background: var(--good); color: #fff; }
+.study-card { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+.study-card h2 { margin: 0; font-family: var(--font-display); font-size: 24px; }
+.study-card p { margin: 0; font-size: 14px; }
+.tasks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.task { display: flex; align-items: center; gap: 12px; text-align: left; min-height: 56px; padding: 10px 14px; border-radius: 14px; border: 2px solid var(--c); background: var(--panel); color: var(--ink); font-size: 18px; font-weight: 700; }
+.task .mark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--c); color: #fff; font-family: var(--font-display); font-size: 18px; flex: none; }
+.task .count { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; font-size: 16px; }
+.task.ok { opacity: .7; }
+.task.ok .count { color: var(--good); }
+.slots { display: grid; gap: 10px; }
+.slot { border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 10px; background: var(--panel); }
+.chip.day { min-width: 44px; min-height: 40px; }
+.slot-time input[type="time"] { min-width: 0; width: 9.5em; }
+.task-sets { display: grid; gap: 8px; }
+.task-set { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.task-set .n { min-width: 3.2em; text-align: center; font-variant-numeric: tabular-nums; }
+.device { display: grid; gap: 10px; font-size: 15px; }
+.device textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 14px; }
+.slot-time { flex-wrap: wrap; gap: 8px; }
+.slot-time span { white-space: nowrap; }
+.slot-del { margin-left: auto; }

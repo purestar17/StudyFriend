@@ -126,4 +126,29 @@ if (penMiss.length > penAll * 0.03) throw new Error("펜 인식 실패가 많음
 const many = [...warp(Pen.TEMPLATES[3][0], 80, 1, 0), ...warp(Pen.TEMPLATES[7][0], 200, 1, 0), [[262, 150], [264, 152]], ...warp(Pen.TEMPLATES[5][0], 320, 1, 0)];
 if (Pen.recognize(many, true) !== "37.5") throw new Error("펜 소수 " + Pen.recognize(many, true));
 if (Pen.recognize(many, false) !== "375") throw new Error("펜 정수 " + Pen.recognize(many, false));
+// 학습 시간표 (Android 쪽 ScheduleTest.kt와 같은 경우를 검사)
+{
+  const SC = require(W + "schedule.js");
+  const eq = (a, b, m) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`시간표 ${m}: ${JSON.stringify(a)} ≠ ${JSON.stringify(b)}`); };
+  const sc = { enabled: true, slots: [{ days: [1, 2, 3, 4, 5], start: "16:00", end: "18:00" }, { days: [6], start: "09:30", end: "10:30" }], tasks: { MATH: 2, HANJA: 1, KOREAN: 0 } };
+  const at = (d, hh, mm) => new Date(2026, 10, d, hh, mm); // 2026-11-17 화요일
+  eq(SC.activeSlot(sc, at(17, 15, 59)), null, "시작 전");
+  eq(SC.activeSlot(sc, at(17, 16, 0)).key, "2026-11-17#16:00", "시작");
+  eq(SC.activeSlot(sc, at(17, 17, 59)).key, "2026-11-17#16:00", "끝 직전");
+  eq(SC.activeSlot(sc, at(17, 18, 0)), null, "끝");
+  eq(SC.activeSlot(sc, at(21, 16, 30)), null, "토요일 오후");
+  eq(SC.activeSlot(sc, at(21, 10, 0)).key, "2026-11-21#09:30", "토요일 오전");
+  eq(SC.activeSlot({ ...sc, enabled: false }, at(17, 16, 30)), null, "꺼짐");
+  const since = at(17, 16, 0), t = since.getTime();
+  const ses = [{ subject: "MATH", startedAt: t - 60000 }, { subject: "MATH", startedAt: t + 1000 }, { subject: "HANJA", startedAt: t + 2000 }];
+  let p = SC.taskProgress(sc, ses, since);
+  eq(p.items, [{ id: "MATH", need: 2, done: 1 }, { id: "HANJA", need: 1, done: 1 }], "진행");
+  eq(p.complete, false, "아직");
+  p = SC.taskProgress(sc, [...ses, { subject: "MATH", startedAt: t + 3000 }, { subject: "MATH", startedAt: t + 4000 }], since);
+  eq([p.items[0].done, p.complete], [2, true], "완료");
+  eq(SC.checkSchedule(sc), null, "올바름");
+  if (!SC.checkSchedule({ ...sc, slots: [{ days: [], start: "16:00", end: "18:00" }] })) throw new Error("요일 없음 통과됨");
+  if (!SC.checkSchedule({ ...sc, slots: [{ days: [1], start: "18:00", end: "16:00" }] })) throw new Error("거꾸로 시간 통과됨");
+  if (!SC.checkSchedule({ ...sc, tasks: { MATH: 0 } })) throw new Error("과제 없음 통과됨");
+}
 console.log(`통과: 문제 ${n}개 검사, 펜 인식 견본 ${penAll - penMiss.length}/${penAll}`);

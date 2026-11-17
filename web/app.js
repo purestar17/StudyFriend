@@ -26,6 +26,8 @@
     get talkEnd() { return store.get("talkEnd", "Goodbye, teacher!"); }, set talkEnd(v) { store.set("talkEnd", v); },
     get talkTopic() { return store.get("talkTopic", null); }, set talkTopic(v) { store.set("talkTopic", v); },
     get penInput() { return store.get("penInput", true); }, set penInput(v) { store.set("penInput", v); },
+    /** 학습 시간표 (schedule.js 참고) */
+    get schedule() { return store.get("schedule", DEFAULT_SCHEDULE); }, set schedule(v) { store.set("schedule", v); },
     level(id) { const s = subjectById(id); return Math.min(Math.max(store.get("level." + id, 1), 1), s.levels.length); },
     setLevel(id, lv) { store.set("level." + id, lv); },
   };
@@ -42,8 +44,13 @@
   };
   const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
-  // ---- 영어 발음 (브라우저 내장 음성) ----
+  // ---- Android 앱 안에서 열렸을 때 쓰는 기능 (없으면 웹 버전) ----
+  const native = window.StudyFriendApp || null;
+  function nativeStatus() { try { return native ? JSON.parse(native.getStatus()) : null; } catch { return null; } }
+
+  // ---- 영어 발음 (브라우저 내장 음성, 앱에서는 기기 음성) ----
   function speak(text) {
+    if (native) { try { native.speak(text); } catch { /* 무시 */ } return; }
     try {
       if (!("speechSynthesis" in window)) return;
       speechSynthesis.cancel();
@@ -135,6 +142,7 @@
     const today = sessions.all().filter((x) => x.startedAt >= startOfToday());
     const right = today.reduce((a, x) => a + x.correct, 0), total = today.reduce((a, x) => a + x.total, 0);
     return [
+      studyBanner(),
       h("div", { class: "row hello" },
         h("div", { class: "grow" },
           h("h1", {}, `${settings.name}, 안녕!`),
@@ -148,9 +156,57 @@
           h("span", {}, h("div", { class: "name" }, s.title),
             h("div", { class: "lv" }, levelLabel(s, settings.level(s.id)) + (done ? ` · 오늘 ${done}회 ✔` : ""))));
       })),
-      h("p", { class: "note" }, "웹 테스트 버전이에요. 학습 기록은 이 브라우저에만 저장돼요. 정해진 시간 자동 실행·화면 잠금은 Android 앱에서만 동작해요."),
+      studyCard(),
+      native ? null : h("p", { class: "note" }, "웹 테스트 버전이에요. 학습 기록은 이 브라우저에만 저장돼요. 정해진 시간 자동 실행·화면 잠금은 Android 앱에서만 동작해요."),
     ];
   }
+
+  // ---- 학습 시간 (시간표 안일 때 오늘의 과제) ----
+  const hm = (d) => `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  function studyNow() {
+    const sc = settings.schedule, slot = activeSlot(sc);
+    if (!slot) return null;
+    return { slot, ...taskProgress(sc, sessions.all(), slot.start) };
+  }
+  let reportedKey = null;
+  /** 과제를 다 했으면 앱에 알려 잠금을 푼다 (시간 칸마다 한 번) */
+  function syncStudy() {
+    if (!native) return;
+    const st = studyNow();
+    if (st && st.complete && reportedKey !== st.slot.key) {
+      try { if (native.studyComplete(st.slot.key)) reportedKey = st.slot.key; } catch { /* 무시 */ }
+    }
+  }
+  function studyBanner() {
+    const st = studyNow();
+    if (!st) return null;
+    const left = st.items.filter((i) => i.done < i.need).length;
+    return h("div", { class: "study-banner" + (st.complete ? " done" : "") },
+      st.complete ? "오늘의 과제를 다 했어요! 이제 쉬어도 좋아요 🎉"
+        : `공부 시간이에요 (${hm(st.slot.start)}~${hm(st.slot.end)}) · 남은 과제 ${left}개` + (native ? " · 다 하면 잠금이 풀려요" : ""));
+  }
+  function studyCard() {
+    const st = studyNow();
+    if (!st) return null;
+    return h("section", { class: "study-card", "aria-label": "오늘의 과제" },
+      h("h2", {}, "오늘의 과제"),
+      h("div", { class: "tasks" }, st.items.map((i) => {
+        const s = subjectById(i.id), ok = i.done >= i.need;
+        return h("button", { class: "task" + (ok ? " ok" : ""), style: `--c:${colorOf(i.id)}`, onclick: () => (HUB[i.id] ? go({ name: HUB[i.id] }) : startQuiz(i.id)) },
+          h("span", { class: "mark", "aria-hidden": "true" }, ok ? "✔" : s.mark),
+          h("span", { class: "grow" }, s.title),
+          h("span", { class: "count" }, `${i.done} / ${i.need}회`));
+      })),
+      h("p", { class: "muted" }, "과목마다 정해진 횟수만큼 끝까지 풀면 과제가 채워져요."));
+  }
+  /** 앱이 잠금 상태가 바뀌었다고 알려 줄 때 (처음 화면·관리자 화면만 다시 그림) */
+  window.onStudyLock = () => { if (screen.name === "home" || screen.name === "admin") render(); };
+  /** 기기의 뒤로 버튼: 처음 화면이 아니면 처음으로. 문제 푸는 중에는 무시 */
+  window.sfBack = () => {
+    if (screen.name === "home") return false;
+    if (screen.name !== "quiz") go({ name: screen.name === "learnChar" ? "learnList" : screen.name === "learnList" ? "hanjaHub" : "home" });
+    return true;
+  };
 
   function Quiz() {
     const s = screen.q, q = s.questions[s.index], subject = subjectById(s.subject);
@@ -430,7 +486,7 @@
     if (/\/c\//.test(base)) return base;
     return base + (base.includes("?") ? "&" : "?") + "q=" + encodeURIComponent(prompt);
   }
-  function copyText(text) { try { navigator.clipboard && navigator.clipboard.writeText(text).catch(() => {}); } catch { /* 복사 불가 */ } }
+  function copyText(text) { if (native) { try { native.copy(text); } catch { /* 무시 */ } return; } try { navigator.clipboard && navigator.clipboard.writeText(text).catch(() => {}); } catch { /* 복사 불가 */ } }
   function Talk() {
     const subject = subjectById("ENGLISH_TALK"), lv = settings.level("ENGLISH_TALK"), t = todayTopic();
     const prompt = talkPrompt(t, lv), url = talkUrl(prompt), end = settings.talkEnd;
@@ -589,10 +645,77 @@
     return `지금 레벨 최근 ${l.length}회 정답률 ${Math.floor((c * 100) / t)}%`;
   }
 
+  /** 관리자: 학습 시간표 · 오늘의 과제 · 잠금 */
+  function ScheduleEditor(toggle) {
+    if (!screen.sched) screen.sched = JSON.parse(JSON.stringify(settings.schedule));
+    const d = screen.sched, st = nativeStatus();
+    const save = () => {
+      const err = d.enabled ? checkSchedule(d) : null;
+      if (err) { adminMsg = err; return render(); }
+      settings.schedule = JSON.parse(JSON.stringify(d));
+      if (native) { try { native.setSchedule(JSON.stringify(d)); } catch { /* 무시 */ } }
+      adminMsg = d.enabled ? "시간표를 저장했어요" : "시간표를 껐어요";
+      render();
+    };
+    const slotRow = (x, i) => h("div", { class: "slot" },
+      h("div", { class: "chips", role: "group", "aria-label": `${i + 1}번 시간 요일` }, [1, 2, 3, 4, 5, 6, 7].map((n) =>
+        h("button", { class: "chip day", "aria-pressed": String(x.days.includes(n)), onclick: () => {
+          x.days = x.days.includes(n) ? x.days.filter((v) => v !== n) : [...x.days, n].sort(); render();
+        } }, DAY_NAMES[n]))),
+      h("div", { class: "row slot-time" },
+        h("input", { type: "time", value: x.start, "aria-label": `${i + 1}번 시작 시각`, onchange: (e) => { x.start = e.target.value || x.start; } }),
+        h("span", {}, "부터"),
+        h("input", { type: "time", value: x.end, "aria-label": `${i + 1}번 끝 시각`, onchange: (e) => { x.end = e.target.value || x.end; } }),
+        h("span", {}, "까지"),
+        d.slots.length > 1 ? h("button", { class: "btn small-btn slot-del", "aria-label": `${i + 1}번 시간 지우기`, onclick: () => { d.slots.splice(i, 1); render(); } }, "✕") : null));
+    const tasks = SUBJECTS.map((s) => {
+      const n = d.tasks[s.id] || 0;
+      const set = (v) => { d.tasks[s.id] = Math.max(0, Math.min(5, v)); render(); };
+      return h("div", { class: "task-set" },
+        h("span", { class: "grow" }, s.title),
+        h("button", { class: "btn small-btn", "aria-label": `${s.title} 줄이기`, disabled: n <= 0, onclick: () => set(n - 1) }, "−"),
+        h("b", { class: "n", "aria-live": "polite" }, n ? `${n}회` : "없음"),
+        h("button", { class: "btn small-btn", "aria-label": `${s.title} 늘리기`, disabled: n >= 5, onclick: () => set(n + 1) }, "+"));
+    });
+    const device = !st ? h("p", { class: "muted" }, "지금은 웹 버전이라 시간표와 과제만 보여 줘요. 정해진 시간에 앱이 켜지고 다른 앱을 막는 것은 Android 앱에서만 돼요.")
+      : h("div", { class: "device" },
+        h("div", {}, st.deviceOwner ? "✔ 기기 관리자: 정해진 시간에 앱이 저절로 켜지고 다른 앱을 막아요." : "△ 기기 관리자가 아니에요: 학습 시간에 알림이 오고, '화면 고정'을 눌러야 잠겨요. 아래 안내대로 한 번 설정해 주세요."),
+        h("div", {}, st.exactAlarm ? "✔ 정확한 시각에 켜기 허용됨" : h("span", {}, "△ 정확한 시각 알람이 꺼져 있어 몇 분 늦게 켜질 수 있어요. ",
+          h("button", { class: "btn small-btn", onclick: () => native.openAlarmSettings() }, "허용하러 가기"))),
+        h("div", {}, st.chatgpt ? "✔ 잠금 중에도 ChatGPT 앱은 열 수 있어요." : "△ ChatGPT 앱이 없어요. 영어 회화를 과제로 넣으려면 설치해 주세요."),
+        st.shouldLock ? h("div", { class: "row" }, h("strong", { class: "grow" }, st.locked ? "🔒 지금 잠겨 있어요" : "지금은 학습 시간이에요"),
+          h("button", { class: "btn primary", onclick: () => { native.adminRelease(); adminMsg = "이번 학습 시간의 잠금을 풀었어요"; render(); } }, "지금 잠금 풀기")) : null,
+        st.deviceOwner ? null : h("details", { class: "talk-help" }, h("summary", {}, "기기 관리자로 설정하는 방법 (컴퓨터 필요, 한 번만)"),
+          h("ol", { class: "muted" },
+            h("li", {}, "태블릿 설정 → 계정에서 모든 계정(구글 계정 포함)을 잠시 지워요. 계정이 있으면 설정이 안 돼요."),
+            h("li", {}, "설정 → 태블릿 정보 → 빌드 번호를 7번 눌러 개발자 옵션을 켜고, USB 디버깅을 켜요."),
+            h("li", {}, "컴퓨터에 USB로 연결하고 아래 명령을 실행해요. 그다음 계정을 다시 추가해요.")),
+          h("textarea", { readonly: true, rows: "2", "aria-label": "설정 명령" }, "adb shell dpm set-device-owner com.kidslearn.app/.LockAdminReceiver")),
+        st.deviceOwner ? h("details", { class: "talk-help" }, h("summary", {}, "기기 관리자 해제 (앱을 지우기 전에)"),
+          h("p", { class: "muted" }, "해제하면 시간표 잠금이 동작하지 않아요. 다시 쓰려면 컴퓨터로 다시 설정해야 해요."),
+          h("button", { class: "btn", onclick: () => {
+            if (!screen.confirmOwner) { screen.confirmOwner = true; adminMsg = "정말 해제하려면 한 번 더 눌러요"; return render(); }
+            screen.confirmOwner = false; native.clearDeviceOwner(); adminMsg = "기기 관리자를 해제했어요"; render();
+          } }, screen.confirmOwner ? "한 번 더 눌러 해제" : "기기 관리자 해제")) : null);
+    return h("div", { class: "section" },
+      h("div", { class: "setting" },
+        h("div", { class: "grow" }, h("strong", {}, "학습 시간표 쓰기"),
+          h("p", {}, "정한 요일·시각이 되면 앱이 켜지고, 오늘의 과제를 다 할 때까지 다른 앱을 쓸 수 없어요. 시간이 끝나면 저절로 풀려요.")),
+        toggle(d.enabled, (v) => { d.enabled = v; save(); }, "학습 시간표 쓰기")),
+      h("strong", {}, "학습 시간"),
+      h("div", { class: "slots" }, d.slots.map(slotRow)),
+      h("button", { class: "add-row", onclick: () => { d.slots.push({ days: [1, 2, 3, 4, 5], start: "19:00", end: "20:00" }); render(); } }, "+ 시간 추가"),
+      h("strong", {}, "오늘의 과제 (학습 시간마다)"),
+      h("div", { class: "task-sets" }, tasks),
+      h("button", { class: "btn primary", onclick: save }, "시간표 저장"),
+      h("strong", {}, "이 기기"),
+      device);
+  }
+
   function Admin() {
-    const tabs = ["학습 레벨", "학습 기록", "영어 단어장", "영어 회화", "AI 설정", "일반"];
+    const tabs = ["학습 레벨", "학습 기록", "영어 단어장", "영어 회화", "학습 시간표", "AI 설정", "일반"];
     const tab = screen.tab;
-    const setTab = (i) => { adminMsg = ""; screen.tab = i; render(); };
+    const setTab = (i) => { adminMsg = ""; screen.tab = i; screen.sched = null; screen.confirmOwner = false; render(); };
     const toggle = (on, onChange, label) => h("button", { class: "switch", role: "switch", "aria-checked": String(on), "aria-label": label, onclick: () => { onChange(!on); render(); } });
     let content;
     if (tab === 0) {
@@ -735,6 +858,8 @@
         h("strong", {}, "ChatGPT 사용 안내"),
         h("p", { class: "muted", style: "margin:0" }, "대화는 이 기기에서 로그인한 ChatGPT 계정으로 진행돼요. OpenAI 약관상 ChatGPT는 13세 이상(18세 미만은 보호자 동의)만 쓸 수 있으니 아이 나이에 맞는지 먼저 확인해 주세요. Android 앱에서는 학습 잠금 중에도 ChatGPT 앱만 열 수 있게 할 예정이에요."));
     } else if (tab === 4) {
+      content = ScheduleEditor(toggle);
+    } else if (tab === 5) {
       content = h("div", { class: "section" },
         h("strong", {}, "AI 선생님 (3단계에서 연결 예정)"),
         h("p", { class: "muted", style: "margin:0" }, "AI는 아이의 수준 분석, 새 문제 만들기, 영어 회화 상대를 맡아요. API 키는 기기에 저장하지 않고 중계 서버에 보관해요."),
@@ -763,9 +888,7 @@
             const v = document.getElementById("newpin").value.replace(/\D/g, "");
             if (v.length >= 4) { settings.pin = v; adminMsg = "비밀번호를 바꿨어요"; } else adminMsg = "숫자 4자리 이상 입력해 주세요";
             render();
-          } }, "변경")),
-        h("strong", {}, "학습 시간표 · 화면 잠금"),
-        h("p", { class: "muted", style: "margin:0" }, "정해진 시간에 앱이 자동으로 켜지고 학습을 마칠 때까지 다른 앱을 막는 기능은 Android 앱 2단계에서 추가돼요."));
+          } }, "변경")));
     }
     return [
       h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "나가기", onclick: () => go({ name: "home" }) }, "←"), h("h1", { style: "font-size:28px" }, "관리자 모드")),
@@ -778,6 +901,7 @@
   function render() {
     const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin, hanjaHub: HanjaHub, mathHub: MathHub, wordHub: WordHub, talk: Talk, learnList: LearnList, learnChar: LearnChar };
     app.replaceChildren(...views[screen.name]().flat().filter(Boolean));
+    syncStudy();
   }
 
   // 키보드로도 풀 수 있게 (숫자 문제)
@@ -801,6 +925,12 @@
     else if (e.key === "Backspace") { s.input = s.input.slice(0, -1); render(); }
     else if (e.key === "Enter" && s.input) answer(s.input);
   });
+
+  // 앱에 시간표를 알려 준다 (앱을 새로 깔았거나 업데이트했을 때도 맞도록)
+  if (native) { try { native.setSchedule(JSON.stringify(settings.schedule)); } catch { /* 무시 */ } }
+  // 학습 시간이 시작되거나 끝나면 처음 화면을 새로 그린다
+  let lastKey = null;
+  setInterval(() => { const s = activeSlot(settings.schedule), k = s && s.key; if (k !== lastKey) { lastKey = k; window.onStudyLock(); } }, 30000);
 
   render();
 })();
