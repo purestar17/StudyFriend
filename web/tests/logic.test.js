@@ -85,6 +85,18 @@ for (let lv = 1; lv <= 6; lv++) {
   const ses = makeSession("ENGLISH_WORD", 1, 10, { book: words });
   if (!ses.every((q) => words.some((w) => w[0] === q.write))) throw new Error("단어장 세션");
 }
+// 뜻 여러 개, 사진 글자 정리
+{
+  const book = [["apple", "사과, 능금"], ["run", "달리다,운영하다"], ["cat", "고양이"], ["red", "빨간"]];
+  for (let i = 0; i < 300; i++) {
+    const q = L.wordQuestion(1, book); n++;
+    if (q.big === "apple" && q.answer !== "사과, 능금") fail("뜻 여러 개", q);
+    if (/영어로/.test(q.prompt) && !book.some(([e, k]) => e === q.answer && L.meaningsOf(k).some((m) => q.prompt.includes(`'${m}'`)))) fail("뜻 하나로 묻기", q);
+  }
+  const r = L.parseOcrText("Unit 5\n1. apple 사과, 능금\n2) run 달리다; 운 영 하 다\n바나나 banana\n| 6. go to school 학교에 가다 |\nbeautiful");
+  const want = [["Unit", ""], ["apple", "사과, 능금"], ["run", "달리다, 운영하다"], ["banana", "바나나"], ["go to school", "학교에 가다"], ["beautiful", ""]];
+  if (JSON.stringify(r) !== JSON.stringify(want)) throw new Error("사진 글자 정리 " + JSON.stringify(r));
+}
 for (const t of TALK_TOPICS) if (!t.id || !t.en || !t.ko || t.phrases.length < 3) throw new Error("회화 주제 " + t.id);
 
 // 모든 급수 한자에 획순 데이터가 있어야 한다

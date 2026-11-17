@@ -190,7 +190,12 @@ function hanjaQuestion(lv, type) {
   return q;
 }
 
-/** 영어 단어 문제. bank를 주면(관리자 단어장) 그 단어들로, 없으면 레벨별 기본 단어로 */
+/** 뜻 문자열("사과, 능금")을 뜻 목록으로 */
+const meaningsOf = (ko) => String(ko).split(/\s*[,，、;/]\s*/).map((x) => x.trim()).filter(Boolean);
+/** 뜻 여러 개를 보기 좋게 한 줄로 */
+const joinMeanings = (ko) => meaningsOf(ko).join(", ");
+
+/** 영어 단어 문제. bank를 주면(관리자 단어장) 그 단어들로, 없으면 레벨별 기본 단어로. 뜻은 쉼표로 여러 개 */
 function wordQuestion(lv, bank) {
   const own = bank && bank.length ? bank : null;
   const list = own || bankAt(CONTENT.words, lv);
@@ -198,9 +203,40 @@ function wordQuestion(lv, bank) {
   // 단어장이 4개보다 적으면 기본 단어에서 오답 보기를 채운다
   const extra = list.length >= 4 ? [] : CONTENT.words.flat();
   const tag = own ? "내 단어장" : null;
-  if (Math.random() < 0.6)
-    return { ...choiceQuestion({ prompt: "이 단어의 뜻은?", answer: ko, pool: [...list, ...extra].map((x) => x[1]), big: en, speak: en, explain: `${en} = ${ko}` }), write: en, tag };
-  return { ...choiceQuestion({ prompt: `'${ko}'${eulReul(ko)} 영어로 하면?`, answer: en, pool: [...list, ...extra].map((x) => x[0]), speak: en, explain: `${ko} = ${en}` }), write: en, tag };
+  const all = joinMeanings(ko);
+  if (Math.random() < 0.6) {
+    // 뜻이 겹치는 다른 단어는 오답 보기에서 뺀다
+    const mine = new Set(meaningsOf(ko));
+    const pool = [...list, ...extra].filter(([e, k]) => e !== en && !meaningsOf(k).some((m) => mine.has(m))).map((x) => joinMeanings(x[1]));
+    return { ...choiceQuestion({ prompt: "이 단어의 뜻은?", answer: all, pool: [all, ...pool], big: en, speak: en, explain: `${en} = ${all}` }), write: en, tag };
+  }
+  const one = pick(meaningsOf(ko));
+  const pool = [...list, ...extra].filter(([e, k]) => e.toLowerCase() !== en.toLowerCase() && !meaningsOf(k).includes(one)).map((x) => x[0]);
+  return { ...choiceQuestion({ prompt: `'${one}'${eulReul(one)} 영어로 하면?`, answer: en, pool: [en, ...pool], speak: en, explain: `${en} = ${all}` }), write: en, tag };
+}
+
+/** 사진에서 읽은 글자를 [영어, 뜻] 줄로. "1. apple 사과, 능금" / "사과 apple" 모두 받는다 */
+function parseOcrText(text) {
+  const rows = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    let line = raw.replace(/[|_~`"“”‘’«»•·]+/g, " ").replace(/\s+/g, " ").trim();
+    line = line.replace(/^\(?\d{1,3}\s*[.):\]]?\s*/, ""); // 앞 번호
+    if (!/[A-Za-z]{2,}|^[A-Za-z]$/.test(line)) continue;
+    const hi = line.search(/[가-힣]/);
+    let en, ko;
+    if (hi < 0) { en = line; ko = ""; }
+    else if (hi === 0) { // 뜻이 앞, 영어가 뒤
+      const li = line.search(/[A-Za-z]/);
+      ko = line.slice(0, li); en = line.slice(li);
+    } else { en = line.slice(0, hi); ko = line.slice(hi); }
+    en = en.replace(/[^A-Za-z' .-]/g, " ").replace(/\s+/g, " ").replace(/^[\s.'-]+|[\s.'-]+$/g, "");
+    ko = ko.replace(/[A-Za-z]/g, "").replace(/[^가-힣0-9 ,;/~()\-]/g, " ").replace(/\s*-\s*$/, "").replace(/\s+/g, " ").trim();
+    // 한글 글자 사이에 잘못 들어간 띄어쓰기 붙이기 ("운 영 하 다" → "운영하다")
+    ko = ko.replace(/(^|[ ,])((?:[가-힣] ){1,}[가-힣])(?=$|[ ,])/g, (m, a, b) => a + b.replace(/ /g, ""));
+    ko = meaningsOf(ko.replace(/\s{2,}/g, ", ")).join(", ");
+    if (en.length >= 1 && /[A-Za-z]/.test(en)) rows.push([en, ko]);
+  }
+  return rows;
 }
 
 /** 관리자가 붙여 넣은 단어 목록을 [영어, 뜻] 쌍으로. 한 줄에 하나, 구분은 탭 · 쉼표 · - · : · = */
@@ -262,4 +298,4 @@ function levelChange(rate, lv, maxLv) {
   return 0;
 }
 
-if (typeof module !== "undefined") module.exports = { parseWordList, wordQuestion, MathGen, SUBJECTS, oneQuestion, makeSession, levelChange, normalize, hanjaQuestion, HanjaTypes, HANJA_LEVEL_NAMES };
+if (typeof module !== "undefined") module.exports = { parseOcrText, meaningsOf, joinMeanings, parseWordList, wordQuestion, MathGen, SUBJECTS, oneQuestion, makeSession, levelChange, normalize, hanjaQuestion, HanjaTypes, HANJA_LEVEL_NAMES };

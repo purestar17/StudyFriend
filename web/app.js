@@ -624,6 +624,35 @@
         })));
     } else if (tab === 2) {
       const books = wordbooks.all(), edit = screen.editBook ? wordbooks.get(screen.editBook) : null;
+      // 입력 중인 단어장은 화면을 다시 그려도 남도록 screen.draft에 둔다
+      if (!screen.draft || screen.draft.id !== (edit ? edit.id : null))
+        screen.draft = edit ? { id: edit.id, name: edit.name, rows: edit.words.map((w) => [w[0], w[1]]) } : { id: null, name: "", rows: [["", ""], ["", ""], ["", ""]] };
+      const draft = screen.draft;
+      const addRow = () => {
+        draft.rows.push(["", ""]); render();
+        const ins = document.querySelectorAll(".word-row:not(.head) input[lang=en]"); if (ins.length) ins[ins.length - 1].focus();
+      };
+      /** 빈 칸부터 채우고 남으면 줄을 더한다 */
+      const mergeRows = (words) => {
+        const keep = draft.rows.filter(([e, k]) => e.trim() || k.trim());
+        draft.rows = [...keep, ...words.map((w) => [w[0], w[1]])];
+        if (!draft.rows.length) draft.rows.push(["", ""]);
+      };
+      const readPhoto = async (input) => {
+        const file = input.files && input.files[0];
+        input.value = "";
+        if (!file) return;
+        if (typeof photoToWords !== "function") { screen.ocrMsg = "사진 인식 기능을 불러오지 못했어요."; return render(); }
+        const show = (t, p) => { screen.ocrMsg = p ? `${t} ${Math.round(p * 100)}%` : t; const m = document.querySelector(".ocr-msg"); if (m) m.textContent = screen.ocrMsg; else render(); };
+        try {
+          const rows = await photoToWords(file, show);
+          mergeRows(rows);
+          const empty = rows.filter((r) => !r[1]).length;
+          screen.ocrMsg = rows.length ? `사진에서 ${rows.length}개를 읽어 칸에 넣었어요. 틀린 글자가 있을 수 있으니 확인하고 고쳐 주세요.` + (empty ? ` 뜻을 못 읽은 줄 ${empty}개는 직접 써 주세요.` : "")
+            : "사진에서 단어를 찾지 못했어요. 밝은 곳에서 단어 목록이 화면에 꽉 차게 찍어 주세요.";
+        } catch (err) { screen.ocrMsg = err.message || "사진을 읽지 못했어요."; }
+        if (screen.name === "admin") render();
+      };
       content = h("div", { class: "section" },
         h("strong", {}, "단어 시험 뒤 손으로 쓰기"),
         h("div", { class: "chips" }, [["trace", "따라 쓰기 (흐린 글자 위에)"], ["free", "혼자 쓰기 (보지 않고)"], ["off", "쓰기 없음"]].map(([v, label]) =>
@@ -631,26 +660,48 @@
         h("p", { class: "muted", style: "margin:0" }, "문제를 푼 뒤 그 영어 단어를 공책 칸에 쓰게 해요. 쓴 모양이 단어와 비슷하면 통과하고, 두 번 틀리면 건너뛸 수 있어요."),
         h("strong", {}, edit ? `'${edit.name}' 고치기` : "새 단어장 만들기"),
         h("label", { for: "bookName" }, "단어장 이름"),
-        h("input", { type: "text", id: "bookName", maxlength: "30", value: edit ? edit.name : "", placeholder: "예: 3단원 단어, 이번 주 단어" }),
-        h("label", { for: "bookWords" }, "단어 (한 줄에 하나: 영어 - 뜻)"),
-        h("textarea", { id: "bookWords", rows: "8", placeholder: "apple - 사과\nbanana - 바나나\ngo to school - 학교에 가다" }, edit ? edit.words.map((w) => `${w[0]} - ${w[1]}`).join("\n") : ""),
-        h("p", { class: "muted", style: "margin:0" }, "영어와 뜻 사이는 - , : = 또는 탭으로 나눠요. 엑셀에서 두 칸을 복사해 붙여 넣어도 돼요."),
+        h("input", { type: "text", id: "bookName", maxlength: "30", value: draft.name, placeholder: "예: 3단원 단어, 이번 주 단어", oninput: (e) => (draft.name = e.target.value) }),
+        h("div", { class: "word-rows", role: "list" },
+          h("div", { class: "word-row head", "aria-hidden": "true" }, h("span", {}, "영어"), h("span", {}, "뜻 (여러 개는 쉼표로)"), h("span", {})),
+          draft.rows.map((r, i) => h("div", { class: "word-row", role: "listitem" },
+            h("input", { type: "text", lang: "en", autocapitalize: "off", spellcheck: "false", "aria-label": `${i + 1}번 영어`, value: r[0], placeholder: i === 0 ? "예: apple" : "영어", oninput: (e) => (r[0] = e.target.value) }),
+            h("input", { type: "text", class: r[0].trim() && !r[1].trim() ? "need" : null, "aria-label": `${i + 1}번 뜻`, value: r[1], placeholder: i === 0 ? "예: 사과, 능금" : "뜻",
+              oninput: (e) => { r[1] = e.target.value; e.target.classList.toggle("need", !!r[0].trim() && !r[1].trim()); },
+              onkeydown: (e) => { if (e.key === "Enter" && i === draft.rows.length - 1) { e.preventDefault(); addRow(); } } }),
+            h("button", { class: "row-del", "aria-label": `${i + 1}번 단어 빼기`, onclick: () => { draft.rows.splice(i, 1); if (!draft.rows.length) draft.rows.push(["", ""]); render(); } }, "✕")))),
+        h("button", { class: "add-row", onclick: addRow }, "+ 단어 추가"),
+        h("div", { class: "row wrap" },
+          h("label", { class: "btn photo-btn" }, "📷 사진으로 한 번에 추가",
+            h("input", { type: "file", accept: "image/*", capture: "environment", class: "visually-hidden", onchange: (e) => readPhoto(e.target) })),
+          h("button", { class: "btn", onclick: () => { screen.pasteOpen = !screen.pasteOpen; render(); } }, "여러 줄 붙여 넣기")),
+        screen.ocrMsg ? h("div", { class: "ocr-msg", "aria-live": "polite" }, screen.ocrMsg) : null,
+        screen.pasteOpen ? h("div", { class: "section" },
+          h("textarea", { id: "bookWords", rows: "6", placeholder: "apple - 사과, 능금\nbanana - 바나나" }),
+          h("p", { class: "muted", style: "margin:0" }, "한 줄에 하나씩 '영어 - 뜻'. 엑셀에서 두 칸을 복사해 붙여 넣어도 돼요."),
+          h("button", { class: "btn", onclick: () => {
+            const { words, bad } = parseWordList(document.getElementById("bookWords").value);
+            mergeRows(words); screen.pasteOpen = false;
+            adminMsg = `${words.length}개를 아래 칸에 넣었어요` + (bad.length ? ` · 읽지 못한 줄 ${bad.length}개` : ""); render();
+          } }, "칸에 넣기")) : null,
         h("div", { class: "row" },
           h("button", { class: "btn primary", onclick: () => {
-            const name = document.getElementById("bookName").value.trim();
-            const { words, bad } = parseWordList(document.getElementById("bookWords").value);
+            const name = draft.name.trim();
+            const filled = draft.rows.map(([e, k]) => [e.trim().replace(/\s+/g, " "), joinMeanings(k)]).filter(([e, k]) => e || k);
+            const words = [], seen = new Set();
+            for (const [e, k] of filled) if (e && k && /[A-Za-z]/.test(e) && !seen.has(e.toLowerCase())) { seen.add(e.toLowerCase()); words.push([e, k]); }
+            const skipped = filled.length - words.length;
             if (!name) { adminMsg = "단어장 이름을 써 주세요"; return render(); }
-            if (words.length < 2) { adminMsg = "단어를 2개 이상 넣어 주세요"; return render(); }
-            wordbooks.save({ id: edit ? edit.id : "b" + Date.now().toString(36), name, words });
-            screen.editBook = null;
-            adminMsg = `'${name}' 저장: ${words.length}개 단어` + (bad.length ? ` · 읽지 못한 줄 ${bad.length}개: ${bad.slice(0, 3).join(" / ")}` : "");
+            if (words.length < 2) { adminMsg = "영어와 뜻이 모두 있는 단어를 2개 이상 넣어 주세요"; return render(); }
+            wordbooks.save({ id: draft.id || "b" + Date.now().toString(36), name, words });
+            screen.editBook = null; screen.draft = null;
+            adminMsg = `'${name}' 저장: ${words.length}개 단어` + (skipped ? ` · 비었거나 겹친 줄 ${skipped}개는 뺐어요` : "");
             render();
           } }, edit ? "고친 내용 저장" : "단어장 저장"),
-          edit ? h("button", { class: "btn", onclick: () => { screen.editBook = null; render(); } }, "취소") : null),
+          edit ? h("button", { class: "btn", onclick: () => { screen.editBook = null; screen.draft = null; render(); } }, "취소") : null),
         h("strong", {}, `만든 단어장 (${books.length})`),
         books.length ? h("div", { class: "book-list" }, books.map((b) => h("div", { class: "book-row" },
           h("span", { class: "grow" }, h("b", {}, b.name), h("span", { class: "muted" }, ` · ${b.words.length}개`)),
-          h("button", { class: "btn small-btn", onclick: () => { screen.editBook = b.id; adminMsg = ""; render(); } }, "고치기"),
+          h("button", { class: "btn small-btn", onclick: () => { screen.editBook = b.id; screen.ocrMsg = ""; adminMsg = ""; render(); window.scrollTo(0, 0); } }, "고치기"),
           h("button", { class: "btn small-btn danger", onclick: () => {
             if (screen.confirmDel !== b.id) { screen.confirmDel = b.id; adminMsg = `'${b.name}'을(를) 지우려면 한 번 더 눌러요`; return render(); }
             wordbooks.remove(b.id); screen.confirmDel = null; adminMsg = `'${b.name}'을(를) 지웠어요`; render();
