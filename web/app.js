@@ -194,10 +194,13 @@
   }
 
   // ---- 한자: 획순 데이터 ----
-  const strokeCache = {};
+  // 획순은 급수별 묶음 파일(strokes/levelN.json)에 들어 있다
+  const bundleCache = {};
   function loadStrokes(ch) {
-    if (!strokeCache[ch]) strokeCache[ch] = fetch(`strokes/${encodeURIComponent(ch)}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
-    return strokeCache[ch];
+    const n = STROKE_FILE[ch];
+    if (!n) return Promise.reject(new Error("획순 데이터 없음"));
+    if (!bundleCache[n]) bundleCache[n] = fetch(`strokes/level${n}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    return bundleCache[n].then((b) => b[ch]);
   }
   const SVGNS = "http://www.w3.org/2000/svg";
   /** 획순 그림. mode "exam": 한 획만 진하게. mode "step": 앞의 획은 진하게, 이번 획은 강조색 */

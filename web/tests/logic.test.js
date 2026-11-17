@@ -22,12 +22,18 @@ for (const s of SUBJECTS) for (let lv = 1; lv <= s.levels.length; lv++) for (let
     }
   } else if (new Set(q.choices).size !== 4 || !q.choices.includes(q.answer)) fail("보기", q);
 }
-for (let lv = 1; lv <= 3; lv++) for (const t of Object.keys(HanjaTypes)) for (let i = 0; i < 300; i++) {
+for (let lv = 1; lv <= CONTENT.hanja.length; lv++) for (const t of Object.keys(HanjaTypes)) for (let i = 0; i < 300; i++) {
   const q = hanjaQuestion(lv, t); n++;
   if (new Set(q.choices).size !== 4 || !q.choices.includes(q.answer)) fail("한자 " + t, q);
   if (t === "sentence" && !/\[.+\]/.test(q.sentence)) fail("예문", q);
   if (t === "blank" && q.big.includes(q.answer)) fail("빈칸", q);
   if (t === "strokeOrder" && !(q.stroke && STROKE_COUNTS[q.stroke.char] > q.stroke.highlight)) fail("필순", q);
+}
+// 모든 급수 한자에 획순 데이터가 있어야 한다
+const fs = require("fs");
+for (const [i, lv] of CONTENT.hanja.entries()) {
+  const bundle = JSON.parse(fs.readFileSync(W + `strokes/level${i + 1}.json`, "utf8"));
+  for (const [h] of lv) if (!bundle[h] || bundle[h].strokes.length !== STROKE_COUNTS[h] || bundle[h].medians.length !== STROKE_COUNTS[h]) throw new Error("획순 " + h);
 }
 for (const s of SUBJECTS) if (makeSession(s.id, 1, 10).length !== 10) throw new Error("세션 " + s.id);
 console.log(`통과: 문제 ${n}개 검사`);

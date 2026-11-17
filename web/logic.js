@@ -1,7 +1,7 @@
 // 문제 생성과 채점 규칙. Android 앱(content/, AppViewModel.kt)과 같은 규칙을 따른다.
 const SUBJECTS = [
   { id: "MATH", title: "수학", mark: "123", levels: ["1학년", "2학년", "3학년", "4학년", "5학년", "6학년"] },
-  { id: "HANJA", title: "한자", mark: "漢", levels: ["8급", "7급", "6급"] },
+  { id: "HANJA", title: "한자", mark: "漢", levels: ["8급", "7급", "6급", "5급"] },
   { id: "ENGLISH_WORD", title: "영어 단어", mark: "ABC", levels: ["기초", "초급", "중급"] },
   { id: "ENGLISH_TALK", title: "영어 회화", mark: "Hi!", levels: ["기초", "초급", "중급"] },
   { id: "KOREAN", title: "국어 어휘", mark: "가나", levels: ["기초", "초급", "중급"] },
@@ -87,8 +87,8 @@ const MathGen = {
 
 const bankAt = (banks, lv) => banks[Math.min(Math.max(lv - 1, 0), banks.length - 1)];
 
-// ---- 한자: 한자능력검정시험(8급~6급) 유형 ----
-const HANJA_LEVEL_NAMES = ["8급", "7급", "6급"];
+// ---- 한자: 한자능력검정시험(8급~5급) 유형 ----
+const HANJA_LEVEL_NAMES = ["8급", "7급", "6급", "5급"];
 const hanjaUpTo = (lv) => CONTENT.hanja.slice(0, Math.min(Math.max(lv, 1), CONTENT.hanja.length)).flat();
 const hanjaMeaning = (ch) => { for (const lv of CONTENT.hanja) for (const [h, m] of lv) if (h === ch) return m; return null; };
 /** 이번 급수 것을 70% 확률로, 아래 급수 것을 30% 확률로 고른다 (급수 시험은 아래 급수 한자도 포함) */
