@@ -334,6 +334,7 @@
         h("div", { class: "learn-right" },
           h("div", { class: "meaning" }, meaning),
           h("div", { class: "muted" }, count ? `총 ${count}획` : ""),
+          STROKE_ALT.includes(ch) ? h("p", { class: "note", style: "margin:0" }, "이 글자의 획순 그림은 한국 표준 글씨와 모양이 조금 달라요. 획순은 참고용으로 봐 주세요.") : null,
           count ? h("div", { class: "steps", "aria-label": "획순 차례" }, Array.from({ length: count }, (_, i) =>
             h("figure", {}, strokeFigure(ch, i, "step"), h("figcaption", {}, String(i + 1))))) : null,
           words.length ? h("div", { class: "examples" }, h("strong", {}, "이 한자가 들어간 말"),

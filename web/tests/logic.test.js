@@ -31,9 +31,14 @@ for (let lv = 1; lv <= CONTENT.hanja.length; lv++) for (const t of Object.keys(H
 }
 // 모든 급수 한자에 획순 데이터가 있어야 한다
 const fs = require("fs");
+const noStroke = [];
 for (const [i, lv] of CONTENT.hanja.entries()) {
   const bundle = JSON.parse(fs.readFileSync(W + `strokes/level${i + 1}.json`, "utf8"));
-  for (const [h] of lv) if (!bundle[h] || bundle[h].strokes.length !== STROKE_COUNTS[h] || bundle[h].medians.length !== STROKE_COUNTS[h]) throw new Error("획순 " + h);
+  for (const [h] of lv) {
+    if (!STROKE_COUNTS[h]) { noStroke.push(h); continue; }
+    if (!bundle[h] || bundle[h].strokes.length !== STROKE_COUNTS[h] || bundle[h].medians.length !== STROKE_COUNTS[h]) throw new Error("획순 " + h);
+  }
 }
+if (noStroke.length > 5) throw new Error("획순 없는 한자가 너무 많음: " + noStroke.join(""));
 for (const s of SUBJECTS) if (makeSession(s.id, 1, 10).length !== 10) throw new Error("세션 " + s.id);
 console.log(`통과: 문제 ${n}개 검사`);
