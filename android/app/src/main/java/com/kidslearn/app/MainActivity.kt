@@ -48,6 +48,8 @@ class MainActivity : ComponentActivity() {
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var cameraUri: Uri? = null
     private var pinPromptedKey: String? = null
+    private val ai by lazy { ChatGpt(applicationContext) }
+    private val aiWork = java.util.concurrent.Executors.newCachedThreadPool()
 
     private val pickFile = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val cb = fileCallback ?: return@registerForActivityResult
@@ -187,7 +189,13 @@ class MainActivity : ComponentActivity() {
         val uri = Uri.parse(url)
         val view = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         // ChatGPT 주소는 ChatGPT 앱으로 연다 (잠금 중에도 열 수 있는 앱)
-        val isChat = uri.host?.endsWith("chatgpt.com") == true || uri.host?.endsWith("openai.com") == true
+        val isChat = uri.host?.endsWith("chatgpt.com") == true || uri.host == "chat.openai.com"
+        // ChatGPT 로그인 창은 꼭 브라우저로 연다 (앱으로 열리면 로그인이 돌아오지 않는다)
+        if (uri.host == "auth.openai.com") {
+            val browser = packageManager.resolveActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com")), PackageManager.MATCH_DEFAULT_ONLY)
+                ?.activityInfo?.packageName?.takeIf { it != "android" }
+            try { startActivity(Intent(view).apply { if (browser != null) setPackage(browser) }); return } catch (_: Exception) { }
+        }
         if (isChat && Lock.chatGptInstalled(this)) {
             try { startActivity(Intent(view).setPackage(Lock.CHATGPT)); return } catch (_: Exception) { }
         }
@@ -301,6 +309,33 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // ---- AI (ChatGPT 계정). 오래 걸리는 일은 뒤에서 하고 window.__aiDone(id, ok, 값)으로 돌려준다 ----
+        @JavascriptInterface
+        fun aiStatus(): String = ai.status().toString()
+
+        @JavascriptInterface
+        fun aiSignIn(id: String) = aiJob(id) {
+            if (inLockTask()) throw AiError("학습 시간 잠금 중에는 로그인할 수 없어요. 잠금을 푼 뒤 해 주세요.")
+            ai.signIn { url -> runOnUiThread { openExternal(url) } }
+            // 로그인 창(브라우저)에서 앱으로 돌아오기
+            runOnUiThread {
+                try { startActivity(Intent(this@MainActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)) } catch (_: Exception) { }
+            }
+            ai.status().toString()
+        }
+
+        @JavascriptInterface
+        fun aiCancel() = ai.cancel()
+
+        @JavascriptInterface
+        fun aiSignOut(id: String) = aiJob(id) { ai.signOut(); ai.status().toString() }
+
+        @JavascriptInterface
+        fun aiModels(id: String) = aiJob(id) { ai.models().toString() }
+
+        @JavascriptInterface
+        fun aiChat(id: String, model: String, system: String, user: String) = aiJob(id) { ai.chat(model, system, user) }
+
         @JavascriptInterface
         fun openExternal(url: String) = runOnUiThread { this@MainActivity.openExternal(url) }
 
@@ -319,8 +354,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun aiJob(id: String, work: () -> String) {
+        aiWork.execute {
+            val (ok, value) = try { true to work() } catch (e: AiError) { false to (e.message ?: "AI 오류") } catch (e: Exception) { false to "AI를 쓰지 못했어요. 다시 해 주세요." }
+            runOnUiThread {
+                if (::web.isInitialized) web.evaluateJavascript("window.__aiDone && __aiDone(${JSONObject.quote(id)}, $ok, ${JSONObject.quote(value)})", null)
+            }
+        }
+    }
+
     companion object {
         const val HOST = "appassets.androidplatform.net"
-        const val BuildConfigVersion = "0.2.2"
+        const val BuildConfigVersion = "0.3.0"
     }
 }

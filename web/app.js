@@ -1,7 +1,6 @@
 // 화면과 상태. Android 앱의 MainActivity / AppViewModel / ui/* 를 옮긴 것.
 (() => {
   const COLORS = { MATH: "--math", HANJA: "--hanja", ENGLISH_WORD: "--word", ENGLISH_TALK: "--talk", KOREAN: "--korean" };
-  const AI = [["NONE", "사용 안 함"], ["CLAUDE", "Claude (Anthropic)"], ["OPENAI", "GPT (OpenAI)"]];
 
   // ---- 저장 (이 브라우저 안에만 저장. 막혀 있으면 메모리에만 둔다) ----
   const mem = {};
@@ -25,6 +24,9 @@
     /** 학생이 이 말을 하면 ChatGPT가 대화를 마무리한다 */
     get talkEnd() { return store.get("talkEnd", "Goodbye, teacher!"); }, set talkEnd(v) { store.set("talkEnd", v); },
     get talkTopic() { return store.get("talkTopic", null); }, set talkTopic(v) { store.set("talkTopic", v); },
+    /** AI 기능 켜고 끄기 (ChatGPT 계정 연결 뒤) */
+    get aiExplain() { return store.get("aiExplain", true); }, set aiExplain(v) { store.set("aiExplain", v); },
+    get aiSimilar() { return store.get("aiSimilar", true); }, set aiSimilar(v) { store.set("aiSimilar", v); },
     get penInput() { return store.get("penInput", true); }, set penInput(v) { store.set("penInput", v); },
     /** 학습 시간표 (schedule.js 참고) */
     get schedule() { return store.get("schedule", DEFAULT_SCHEDULE); }, set schedule(v) { store.set("schedule", v); },
@@ -317,6 +319,7 @@
         h("strong", { class: ok ? "ok" : "no" }, ok ? "정답이에요! 잘 고쳤어요" : showAnswer ? ["이번에도 아쉬워요. 정답은 ", tx(q.answer), q.unit && !q.choices ? q.unit : ""] : "아쉬워요. 한 번 더 풀어 볼까요?"),
         showAnswer && q.explain ? h("span", { class: "muted" }, tx(q.explain)) : null));
     }
+    if (s.retry && s.answered !== null && !ok) body.push(aiHelpBox(s, q, showAnswer));
     const actions = s.retry && s.answered !== null ? h("div", { class: "retry-actions" },
       !ok && !showAnswer ? h("button", { class: "btn primary", onclick: () => { clearInput(s); render(); } }, "다시 풀기") : null,
       h("button", { class: ok || showAnswer ? "next" : "btn", style: `--c:${colorOf(s.subject)}`, onclick: () => go({ name: "result", r: s.retry.r }) }, "결과로 돌아가기")) : null;
@@ -325,6 +328,26 @@
       h("div", { class: "stage", style: `--c:${colorOf(s.subject)}` }, body),
       actions,
     ];
+  }
+
+  /** 다시 풀기에서 틀렸을 때 AI 선생님 힌트·설명 */
+  const aiOn = (flag) => window.AiTutor && AiTutor.inApp && settings[flag] && AiTutor.ready();
+  function aiHelpBox(s, q, reveal) {
+    if (!aiOn("aiExplain")) return null;
+    const mode = reveal ? "explain" : "hint";
+    const st = s.retry.ai && s.retry.ai.mode === mode ? s.retry.ai : null;
+    const run = () => {
+      s.retry.ai = { mode, loading: true };
+      render();
+      AiTutor.explain({ subject: subjectById(s.subject).title, level: levelLabel(subjectById(s.subject), s.level), q, given: s.answered, reveal })
+        .then((text) => { s.retry.ai = { mode, text }; }, (e) => { s.retry.ai = { mode, error: e.message }; })
+        .then(() => { if (screen.q === s) render(); });
+    };
+    return h("div", { class: "ai-box", "aria-live": "polite" },
+      !st ? h("button", { class: "btn ai-btn", onclick: run }, reveal ? "🤖 AI 선생님 설명 듣기" : "🤖 AI 선생님 힌트 받기")
+        : st.loading ? h("div", { class: "muted" }, "AI 선생님이 생각하고 있어요…")
+        : st.error ? [h("div", { class: "bad" }, st.error), h("button", { class: "btn small-btn", onclick: run }, "다시 물어보기")]
+        : h("div", { class: "ai-text" }, h("strong", {}, reveal ? "AI 선생님 설명" : "AI 선생님 힌트"), h("p", {}, st.text)));
   }
 
   /** 직접 쓰는 답: 펜(손글씨) 또는 숫자 키패드 */
@@ -392,6 +415,7 @@
       r.change === 1 ? h("div", { class: "lvup" }, `레벨 업! 다음부터 ${levelLabel(subject, r.level + 1)} 문제가 나와요`) : null,
       r.change === -1 ? h("div", { class: "lvdown" }, `다음에는 ${levelLabel(subject, r.level - 1)} 문제로 다시 연습해 봐요`) : null,
       resultList(r),
+      similarBox(r),
       h("div", { class: "actions" },
         h("button", { class: "btn", onclick: () => go({ name: hubOf(r.subject) }) }, HUB[r.subject] ? `${subject.title} 메뉴로` : "처음으로"),
         h("button", { class: "btn primary", onclick: () => startQuiz(r.subject, { unit: r.unitId, bookId: r.bookId }) }, "한 번 더")))];
@@ -411,6 +435,27 @@
           h("span", { class: "grow" }, h("span", { class: "q" }, tx(x.q.big ?? x.q.prompt)), x.q.big ? h("span", { class: "muted" }, x.q.prompt) : null),
           h("span", { class: "state" }, x.fixed ? "✔ 고쳤어요" : "다시 풀기 ›")))),
       ] : h("strong", {}, "모두 맞혔어요! 🎉"));
+  }
+
+  /** 결과: 틀린 문제와 비슷한 문제를 AI가 만들어 바로 푼다 */
+  function similarBox(r) {
+    if (!r.items || !aiOn("aiSimilar")) return null;
+    const wrong = r.items.filter((x) => !x.ok);
+    if (!wrong.length) return null;
+    const sub = subjectById(r.subject), st = r.similar || {};
+    const run = () => {
+      r.similar = { loading: true }; render();
+      AiTutor.similar({ subject: sub.title, subjectId: r.subject, level: levelLabel(sub, r.level), count: 5,
+        wrong: wrong.slice(0, 5).map((x) => ({ prompt: x.q.prompt, big: x.q.big, choices: x.q.choices, answer: x.q.answer, given: x.given })) })
+        .then((questions) => {
+          r.similar = null;
+          go({ name: "quiz", q: { subject: r.subject, level: r.level, unit: null, bookName: "AI 비슷한 문제", questions, index: 0, answers: [], answered: null, selected: null, input: "", pen: [], penText: "", phase: "answer", startedAt: Date.now() } });
+        }, (e) => { r.similar = { error: e.message }; if (screen.r === r) render(); });
+    };
+    return h("div", { class: "ai-box similar", "aria-live": "polite" },
+      st.loading ? h("div", { class: "muted" }, "AI 선생님이 비슷한 문제를 만들고 있어요…")
+        : [st.error ? h("div", { class: "bad" }, st.error) : null,
+          h("button", { class: "btn ai-btn", onclick: run }, "🤖 틀린 문제와 비슷한 문제 5개 풀기")]);
   }
 
   // ---- 한자: 획순 데이터 ----
@@ -719,6 +764,91 @@
     return `지금 레벨 최근 ${l.length}회 정답률 ${Math.floor((c * 100) / t)}%`;
   }
 
+  /** 관리자: ChatGPT 계정 연결, 모델, AI 기능 */
+  let aiState = { busy: false, models: null, error: "" };
+  function AiSettings(toggle) {
+    if (!window.AiTutor || !AiTutor.inApp) return h("div", { class: "section" },
+      h("strong", {}, "AI 선생님 (ChatGPT 계정)"),
+      h("p", { class: "muted", style: "margin:0" }, "AI는 Android 앱에서만 쓸 수 있어요. 앱의 이 화면에서 관리자의 ChatGPT 계정(Go·Plus·Pro)으로 로그인하면, API 키 없이 정액제 사용량으로 틀린 문제 설명, 비슷한 문제 만들기, 수준 분석을 해요."));
+    const st = AiTutor.status(), model = AiTutor.getModel();
+    const loadModels = () => {
+      aiState = { ...aiState, busy: true, error: "" }; render();
+      AiTutor.models().then((m) => {
+        aiState = { ...aiState, busy: false, models: m };
+        if (m.length && !m.some((x) => x.id === AiTutor.getModel())) AiTutor.setModel((m.find((x) => /mini/i.test(x.id)) || m[0]).id);
+      }, (e) => { aiState = { ...aiState, busy: false, error: e.message }; }).then(() => { if (screen.name === "admin") render(); });
+    };
+    if (st.signedIn && !aiState.models && !aiState.busy && !aiState.error) setTimeout(loadModels, 0);
+    const signIn = () => {
+      aiState = { busy: true, models: null, error: "", signing: true }; render();
+      AiTutor.signIn().then(() => { aiState = { busy: false, models: null, error: "" }; adminMsg = "ChatGPT 계정을 연결했어요"; },
+        (e) => { aiState = { busy: false, models: null, error: e.message }; }).then(() => { if (screen.name === "admin") render(); });
+    };
+    return h("div", { class: "section" },
+      h("strong", {}, "AI 선생님 (ChatGPT 계정)"),
+      h("p", { class: "muted", style: "margin:0" }, "관리자의 ChatGPT 계정(Go·Plus·Pro)으로 로그인하면 API 키 없이 정액제 사용량으로 AI를 써요. 로그인 정보는 이 태블릿에만 잠가 두고, ChatGPT 대화 기록은 볼 수 없어요. 사용 한도는 ChatGPT 설정 › 사용량에서 앱별로 정할 수 있어요."),
+      st.signedIn
+        ? h("div", { class: "row" }, h("span", { class: "grow" }, "✔ 연결됨", st.email ? ` · ${st.email}` : ""),
+          h("button", { class: "btn", disabled: aiState.busy, onclick: () => {
+            if (!screen.confirmAiOut) { screen.confirmAiOut = true; adminMsg = "연결을 끊으려면 한 번 더 눌러요"; return render(); }
+            screen.confirmAiOut = false; aiState = { busy: true, models: null, error: "" }; render();
+            AiTutor.signOut().then(() => { adminMsg = "ChatGPT 연결을 끊었어요"; }, () => { adminMsg = "연결을 끊었어요"; }).then(() => { aiState = { busy: false, models: null, error: "" }; render(); });
+          } }, screen.confirmAiOut ? "한 번 더 눌러 끊기" : "연결 끊기"))
+        : aiState.signing ? h("div", { class: "row" }, h("span", { class: "grow" }, "브라우저에서 ChatGPT에 로그인하고 '허용'을 눌러 주세요. 끝나면 이 화면으로 돌아와요."),
+          h("button", { class: "btn", onclick: () => { AiTutor.cancel(); } }, "멈추기"))
+        : h("button", { class: "btn primary", onclick: signIn }, "ChatGPT로 로그인"),
+      aiState.error ? h("div", { class: "bad" }, aiState.error) : null,
+      st.signedIn ? [
+        h("strong", {}, "모델"),
+        aiState.busy && !aiState.models ? h("div", { class: "muted" }, "모델 목록을 받는 중…")
+          : aiState.models ? h("div", { class: "chips" }, aiState.models.map((m) => h("button", { class: "chip", "aria-pressed": String(model === m.id), onclick: () => { AiTutor.setModel(m.id); render(); } }, m.label)))
+          : h("button", { class: "btn small-btn", onclick: loadModels }, "모델 목록 다시 받기"),
+        h("p", { class: "muted", style: "margin:0" }, "빠르고 가벼운 모델(mini 등)이면 충분해요. 정액제 사용량도 덜 써요."),
+        h("strong", {}, "AI 기능"),
+        h("div", { class: "setting" }, h("div", { class: "grow" }, h("strong", {}, "틀린 문제 힌트·설명"), h("p", {}, "결과 화면에서 틀린 문제를 다시 풀 때 AI 선생님이 힌트를 주고, 두 번 틀리면 풀이를 설명해요.")),
+          toggle(settings.aiExplain, (v) => (settings.aiExplain = v), "틀린 문제 힌트·설명")),
+        h("div", { class: "setting" }, h("div", { class: "grow" }, h("strong", {}, "비슷한 문제 만들기"), h("p", {}, "결과 화면에서 틀린 문제와 같은 개념의 새 문제 5개를 AI가 만들어 바로 풀어요. AI가 만든 문제라 가끔 틀릴 수 있어요.")),
+          toggle(settings.aiSimilar, (v) => (settings.aiSimilar = v), "비슷한 문제 만들기")),
+        h("p", { class: "muted", style: "margin:0" }, "수준 분석은 '학습 레벨' 탭에 있어요."),
+      ] : null);
+  }
+
+  /** 낱말 뒤에 '로/으로' (받침이 있고 ㄹ이 아니면 '으로') */
+  const withRo = (w) => { const c = String(w).charCodeAt(String(w).length - 1) - 0xac00; const j = c >= 0 && c < 11172 ? c % 28 : 0; return w + (j && j !== 8 ? "으로" : "로"); };
+  /** 관리자: AI 수준 분석과 레벨 추천 */
+  let aiAnalysis = null;
+  function aiAnalysisBox() {
+    if (!window.AiTutor || !AiTutor.inApp) return null;
+    if (!AiTutor.ready()) return h("p", { class: "muted", style: "margin:0" }, "AI 설정에서 ChatGPT 계정을 연결하면 AI가 학습 기록을 보고 레벨을 추천해 줘요.");
+    const run = () => {
+      aiAnalysis = { loading: true }; render();
+      const all = sessions.all(), notes = wrongNotes.all();
+      const data = { subjects: SUBJECTS.map((s) => ({
+        id: s.id, title: s.title, levels: s.levels, level: settings.level(s.id), levelName: levelLabel(s, settings.level(s.id)),
+        recent: all.filter((x) => x.subject === s.id).slice(0, 15).map((x) => ({ date: new Date(x.startedAt).toISOString().slice(0, 10), level: s.levels[x.level - 1], unit: x.unit || undefined,
+          result: x.kind === "talk" ? `대화 ${Math.round(x.durationSec / 60)}분` : `${x.correct}/${x.total}` })),
+        wrong: notes.filter((n) => n.subject === s.id).slice(0, 12).map((n) => ({ q: n.q.big ? `${n.q.prompt} ${n.q.big}` : n.q.prompt, answer: n.q.answer, given: n.given, fixedLater: !!n.fixed })),
+      })) };
+      AiTutor.analyze(data).then((r) => { aiAnalysis = r; }, (e) => { aiAnalysis = { error: e.message }; }).then(() => { if (screen.name === "admin") render(); });
+    };
+    const a = aiAnalysis;
+    return h("div", { class: "ai-box analysis", "aria-live": "polite" },
+      h("div", { class: "row" }, h("strong", { class: "grow" }, "🤖 AI 수준 분석"),
+        h("button", { class: "btn small-btn", disabled: a && a.loading, onclick: run }, a && !a.loading ? "다시 분석" : "학습 기록으로 분석하기")),
+      !a ? h("p", { class: "muted", style: "margin:0" }, "최근 학습 기록과 오답 노트를 ChatGPT에 보내 과목별 알맞은 레벨을 추천받아요. 아이 이름은 보내지 않아요.")
+        : a.loading ? h("div", { class: "muted" }, "분석하고 있어요… (30초쯤 걸릴 수 있어요)")
+        : a.error ? h("div", { class: "bad" }, a.error)
+        : [h("p", {}, a.summary),
+          h("div", { class: "rec-list" }, a.subjects.map((x) => {
+            const s = subjectById(x.id), now = settings.level(x.id), same = now === x.level;
+            return h("div", { class: "rec" },
+              h("div", { class: "grow" }, h("b", {}, `${s.title}: ${levelLabel(s, x.level)} 추천`), same ? h("span", { class: "muted" }, " (지금과 같음)") : null,
+                h("div", { class: "muted" }, x.reason)),
+              same ? null : h("button", { class: "btn small-btn", onclick: () => { settings.setLevel(x.id, x.level); adminMsg = `${s.title} 레벨을 ${withRo(levelLabel(s, x.level))} 바꿨어요`; render(); } }, "이 레벨로"));
+          })),
+          a.tips.length ? h("ul", { class: "tips" }, a.tips.map((t) => h("li", {}, t))) : null]);
+  }
+
   /** 관리자: 오답 노트 (과목별로 보고, 지우기) */
   function WrongNotesView() {
     const all = wrongNotes.all();
@@ -882,7 +1012,7 @@
   function Admin() {
     const tabs = ["학습 레벨", "학습 기록", "오답 노트", "연습장", "영어 단어장", "영어 회화", "학습 시간표", "AI 설정", "일반"];
     const tab = screen.tab, name = tabs[tab];
-    const setTab = (i) => { adminMsg = ""; screen.tab = i; screen.sched = null; screen.taskDay = null; screen.confirmOwner = false; screen.confirmClear = false; screen.noteFilter = null; render(); };
+    const setTab = (i) => { adminMsg = ""; screen.tab = i; screen.sched = null; screen.taskDay = null; screen.confirmOwner = false; screen.confirmClear = false; screen.noteFilter = null; screen.confirmAiOut = false; render(); };
     const toggle = (on, onChange, label) => h("button", { class: "switch", role: "switch", "aria-checked": String(on), "aria-label": label, onclick: () => { onChange(!on); render(); } });
     let content;
     if (name === "학습 레벨") {
@@ -891,6 +1021,7 @@
           h("div", { class: "grow" }, h("strong", {}, "정답률에 따라 레벨 자동 조정 (기본 꺼짐)"),
             h("p", {}, "꺼 두면 아래에서 관리자가 정한 레벨만 나와요. 켜면 90% 이상 맞힐 때 한 단계 올리고, 50% 미만이면 내려요.")),
           toggle(settings.autoLevel, (v) => (settings.autoLevel = v), "레벨 자동 조정")),
+        aiAnalysisBox(),
         SUBJECTS.map((s) => h("div", { class: "subject-row" }, h("h3", {}, s.title, h("span", { class: "recent" }, recentRate(s.id))),
           h("div", { class: "chips" }, s.levels.map((label, i) => h("button", { class: "chip", "aria-pressed": String(settings.level(s.id) === i + 1),
             onclick: () => { settings.setLevel(s.id, i + 1); render(); } }, label))))));
@@ -1031,17 +1162,7 @@
     } else if (name === "학습 시간표") {
       content = ScheduleEditor(toggle);
     } else if (name === "AI 설정") {
-      content = h("div", { class: "section" },
-        h("strong", {}, "AI 선생님 (3단계에서 연결 예정)"),
-        h("p", { class: "muted", style: "margin:0" }, "AI는 아이의 수준 분석, 새 문제 만들기, 영어 회화 상대를 맡아요. API 키는 기기에 저장하지 않고 중계 서버에 보관해요."),
-        AI.map(([id, label]) => h("label", { class: "radio" }, h("input", { type: "radio", name: "ai", id: "ai-" + id, checked: settings.ai === id, onchange: () => { settings.ai = id; render(); } }), label)),
-        h("label", { for: "relay" }, "중계 서버 주소"),
-        h("div", { class: "row" }, h("input", { type: "url", id: "relay", value: settings.relay, placeholder: "https://" }),
-          h("button", { class: "btn", onclick: () => { settings.relay = document.getElementById("relay").value.trim(); adminMsg = "주소를 저장했어요"; render(); } }, "주소 저장")),
-        h("div", { class: "setting" },
-          h("div", { class: "grow" }, h("strong", {}, "실시간 음성 대화 (OpenAI)"),
-            h("p", {}, "끄면 기기 내장 음성 인식·읽기 + 선택한 AI로 대화해요(저렴). 켜면 더 자연스럽지만 비용이 커요.")),
-          toggle(settings.realtime, (v) => (settings.realtime = v), "실시간 음성 대화")));
+      content = AiSettings(toggle);
     } else {
       content = h("div", { class: "section" },
         h("label", { for: "name" }, h("strong", {}, "학생 별칭")),
