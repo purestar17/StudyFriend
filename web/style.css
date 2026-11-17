@@ -432,3 +432,25 @@ textarea#bookWords { width: 100%; font: inherit; font-size: 16px; border-radius:
 .rec { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
 .rec .muted { font-size: 14px; }
 .tips { margin: 0; padding-left: 20px; }
+
+/* 관리자: 기능별 틀 */
+.section.framed { gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card > strong:first-child, .card > label:first-child > strong { font-size: 18px; }
+.card > .setting:first-child strong { font-size: 18px; }
+.card .slot, .card .note-item, .card .pad-gallery figure { background: var(--bg); }
+.card .day-tab[aria-selected="true"] { background: var(--day-bg); }
+
+/* 요일별 과제: 고른 요일 탭과 과제 칸을 같은 바탕색으로 이어 붙인다 */
+:root { --day-bg: color-mix(in srgb, var(--accent) 11%, var(--panel)); }
+.day-tasks { gap: 0; }
+.day-menu { border-right: none; gap: 2px; }
+.day-tab { border-radius: 12px 0 0 12px; }
+.day-tab[aria-selected="true"] { background: var(--day-bg); }
+.day-tab[aria-selected="true"]::after { display: none; }
+.day-panel { background: var(--day-bg); border-radius: 0 14px 14px 14px; padding: 10px 14px 12px; }
+.day-panel .task-set { border-bottom-color: color-mix(in srgb, var(--accent) 22%, var(--panel)); }
+.day-panel .task-set:last-child { border-bottom: none; }
+.day-title { min-height: 0; }
+.copy-days { margin-top: 0; }
+.section > .ai-box { width: auto; }

@@ -813,6 +813,29 @@
       ] : null);
   }
 
+  /**
+   * 관리자 화면을 기능별 틀(카드)로 묶는다: 제목(strong, 제목 label)마다 새 카드.
+   * 이미 틀이 있는 것(.ai-box)은 그대로 두고, 켜고 끄는 줄(.setting)은 앞 카드에 내용이 있으면 따로 묶는다.
+   */
+  function frameSections(sec) {
+    const kids = [...sec.children];
+    const isHead = (el) => el.tagName === "STRONG" || (el.tagName === "LABEL" && el.firstElementChild && el.firstElementChild.tagName === "STRONG");
+    if (!kids.some(isHead)) return;
+    const groups = [];
+    let cur = null;
+    for (const el of kids) {
+      const standalone = el.classList.contains("ai-box") || el.classList.contains("msg");
+      const lastIsHead = cur && cur.length && isHead(cur[cur.length - 1]);
+      const onlySettings = cur && cur.every((x) => x.classList.contains("setting") || isHead(x));
+      const startSetting = el.classList.contains("setting") && cur && !lastIsHead && !onlySettings;
+      if (standalone) { groups.push([el]); groups[groups.length - 1].standalone = true; cur = null; continue; }
+      if (!cur || isHead(el) || startSetting) { cur = []; groups.push(cur); }
+      cur.push(el);
+    }
+    sec.replaceChildren(...groups.map((g) => (g.standalone ? g[0] : h("div", { class: "card" }, g))));
+    sec.classList.add("framed");
+  }
+
   /** 낱말 뒤에 '로/으로' (받침이 있고 ㄹ이 아니면 '으로') */
   const withRo = (w) => { const c = String(w).charCodeAt(String(w).length - 1) - 0xac00; const j = c >= 0 && c < 11172 ? c % 28 : 0; return w + (j && j !== 8 ? "으로" : "로"); };
   /** 관리자: AI 수준 분석과 레벨 추천 */
@@ -946,13 +969,13 @@
     });
     const tasks = h("div", { class: "day-tasks" }, dayMenu,
       h("div", { class: "day-panel", role: "tabpanel", "aria-label": `${DAY_NAMES[day]}요일 과제` },
-        h("div", { class: "day-title" }, h("strong", { class: "grow" }, `${DAY_NAMES[day]}요일 과제`),
-          usedDays.has(day) ? null : h("span", { class: "muted small" }, "이 요일에는 학습 시간이 없어요")),
-        taskRows,
-        h("button", { class: "btn small-btn copy-days", onclick: () => {
-          for (let k = 1; k <= 7; k++) if (k !== day) d.tasksByDay[k] = { ...dayTasks };
-          adminMsg = `${DAY_NAMES[day]}요일 과제를 모든 요일에 똑같이 넣었어요. 저장을 눌러 주세요`; render();
-        } }, "이 과제를 모든 요일에 똑같이")));
+        h("div", { class: "day-title" },
+          usedDays.has(day) ? h("span", { class: "muted small grow" }, "") : h("span", { class: "muted small grow" }, "이 요일에는 학습 시간이 없어요"),
+          h("button", { class: "btn small-btn copy-days", onclick: () => {
+            for (let k = 1; k <= 7; k++) if (k !== day) d.tasksByDay[k] = { ...dayTasks };
+            adminMsg = `${DAY_NAMES[day]}요일 과제를 모든 요일에 똑같이 넣었어요. 저장을 눌러 주세요`; render();
+          } }, "이 과제를 모든 요일에 똑같이")),
+        taskRows));
     const device = !st ? h("p", { class: "muted" }, "지금은 웹 버전이라 시간표와 과제만 보여 줘요. 정해진 시간에 앱이 켜지고 다른 앱을 막는 것은 Android 앱에서만 돼요.")
       : h("div", { class: "device" },
         h("div", {}, st.deviceOwner ? "✔ 기기 관리자: 정해진 시간에 앱이 저절로 켜지고 다른 앱을 막아요." : "△ 기기 관리자가 아니에요: 학습 시간에 알림이 오고, '화면 고정'을 눌러야 잠겨요. 아래 안내대로 한 번 설정해 주세요."),
@@ -1022,6 +1045,7 @@
             h("p", {}, "꺼 두면 아래에서 관리자가 정한 레벨만 나와요. 켜면 90% 이상 맞힐 때 한 단계 올리고, 50% 미만이면 내려요.")),
           toggle(settings.autoLevel, (v) => (settings.autoLevel = v), "레벨 자동 조정")),
         aiAnalysisBox(),
+        h("strong", {}, "과목별 레벨"),
         SUBJECTS.map((s) => h("div", { class: "subject-row" }, h("h3", {}, s.title, h("span", { class: "recent" }, recentRate(s.id))),
           h("div", { class: "chips" }, s.levels.map((label, i) => h("button", { class: "chip", "aria-pressed": String(settings.level(s.id) === i + 1),
             onclick: () => { settings.setLevel(s.id, i + 1); render(); } }, label))))));
@@ -1182,6 +1206,7 @@
             render();
           } }, "변경")));
     }
+    if (content && content.classList && content.classList.contains("section")) frameSections(content);
     return [
       h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "나가기", onclick: () => go({ name: "home" }) }, "←"), h("h1", { style: "font-size:28px" }, "관리자 모드")),
       tabStrip(h("div", { class: "tabs", role: "tablist" }, tabs.map((t, i) => h("button", { class: "tab", role: "tab", "aria-selected": String(tab === i), onclick: () => setTab(i) }, t)))),
