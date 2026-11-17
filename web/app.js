@@ -18,6 +18,10 @@
     get relay() { return store.get("relay", ""); }, set relay(v) { store.set("relay", v); },
     get realtime() { return store.get("realtime", false); }, set realtime(v) { store.set("realtime", v); },
     /** 영어 회화 주제: { id } 또는 { custom }. 없으면 날마다 바뀌는 추천 주제 */
+    /** 연결할 ChatGPT 주소 (빈 값이면 새 채팅). 맞춤 GPT, 프로젝트, 특정 채팅 주소 */
+    get talkLink() { return store.get("talkLink", ""); }, set talkLink(v) { store.set("talkLink", v); },
+    /** 학생이 이 말을 하면 ChatGPT가 대화를 마무리한다 */
+    get talkEnd() { return store.get("talkEnd", "Goodbye, teacher!"); }, set talkEnd(v) { store.set("talkEnd", v); },
     get talkTopic() { return store.get("talkTopic", null); }, set talkTopic(v) { store.set("talkTopic", v); },
     get penInput() { return store.get("penInput", true); }, set penInput(v) { store.set("penInput", v); },
     level(id) { const s = subjectById(id); return Math.min(Math.max(store.get("level." + id, 1), 1), s.levels.length); },
@@ -357,18 +361,36 @@
     const day = Math.floor((Date.now() - new Date().getTimezoneOffset() * 6e4) / 864e5);
     return { ...TALK_TOPICS[day % TALK_TOPICS.length], set: false };
   }
+  const TALK_LEVEL = ["very easy words and very short sentences (absolute beginner)", "easy words and short sentences (beginner)", "simple everyday English (elementary level)"];
+  /** 대화 규칙. 맞춤 GPT·프로젝트의 '지침'에 넣거나, 새 채팅이면 첫 메시지에 붙인다 */
+  function talkRules(lv, end, withLevel = true) {
+    return `You are a friendly English conversation partner for a Korean elementary school student. ` +
+      (withLevel ? `Use ${TALK_LEVEL[lv - 1] || TALK_LEVEL[1]}. ` : `Use easy words and short sentences unless I ask for harder English. `) +
+      `Talk about the topic I give you. Ask only one short question at a time and wait for my answer. If I make a mistake, gently show the correct sentence and keep going. ` +
+      `If I write in Korean or say I don't know, give a short hint in Korean and ask again in English. Praise me often. ` +
+      `When I say "${end}", end the lesson: give me a short review with 3 useful expressions I practiced and their Korean meanings, then say goodbye and do not ask any more questions. ` +
+      `If I keep talking after that, kindly tell me in Korean that today's conversation is finished and I should go back to the study app. ` +
+      `After about 15 turns, remind me that I can say "${end}" to finish.`;
+  }
+  function talkTopicLine(t, lv) {
+    const phrases = t.phrases.length ? ` Try to use these expressions: ${t.phrases.map((p) => p[0].replace(/[.!?]$/, "")).join(" / ")}.` : "";
+    return `Today's topic: "${t.en}"${t.ko ? ` (${t.ko})` : ""}. My level: ${["beginner", "elementary", "intermediate"][lv - 1] || "elementary"}.${phrases} Let's start! Greet me and ask the first question.`;
+  }
+  /** 연결 주소가 있으면 주제만 보내고(규칙은 그쪽 지침에), 없으면 규칙까지 함께 보낸다 */
   function talkPrompt(t, lv) {
-    const level = ["very easy words and very short sentences (absolute beginner)", "easy words and short sentences (beginner)", "simple everyday English (elementary level)"][lv - 1] || "easy words and short sentences";
-    const phrases = t.phrases.length ? ` Try to use these expressions: ${t.phrases.map((p) => p[0]).join(" / ")}.` : "";
-    return `You are a friendly English conversation partner for a Korean elementary school student. Today's topic: "${t.en}"${t.ko ? ` (${t.ko})` : ""}. ` +
-      `Rules: use ${level}. Ask only one short question at a time and wait for my answer. If I make a mistake, gently show the correct sentence and keep going. ` +
-      `If I write in Korean or say I don't know, give a short hint in Korean and ask again in English. Praise me often.${phrases} ` +
-      `After about 10 turns, tell me 3 useful expressions I practiced with their Korean meanings, then say goodbye. Let's start! Greet me and ask the first question.`;
+    return settings.talkLink ? talkTopicLine(t, lv) : `${talkRules(lv, settings.talkEnd)} ${talkTopicLine(t, lv)}`;
+  }
+  function talkUrl(prompt) {
+    const base = settings.talkLink || "https://chatgpt.com/";
+    // 특정 채팅(/c/...)은 이어서 쓰는 곳이라 문장을 넣지 않는다 (붙여 넣기용으로 복사만)
+    if (/\/c\//.test(base)) return base;
+    return base + (base.includes("?") ? "&" : "?") + "q=" + encodeURIComponent(prompt);
   }
   function copyText(text) { try { navigator.clipboard && navigator.clipboard.writeText(text).catch(() => {}); } catch { /* 복사 불가 */ } }
   function Talk() {
     const subject = subjectById("ENGLISH_TALK"), lv = settings.level("ENGLISH_TALK"), t = todayTopic();
-    const prompt = talkPrompt(t, lv), url = "https://chatgpt.com/?q=" + encodeURIComponent(prompt);
+    const prompt = talkPrompt(t, lv), url = talkUrl(prompt), end = settings.talkEnd;
+    const pasteMode = /\/c\//.test(settings.talkLink);
     const started = screen.startedAt;
     return [
       h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "처음으로", onclick: () => go({ name: "home" }) }, "←"),
@@ -379,10 +401,14 @@
         t.phrases.length ? h("ul", { class: "phrases" }, t.phrases.map(([en, ko]) => h("li", {},
           h("button", { class: "speak small-speak", "aria-label": "발음 듣기", onclick: () => speak(en.replace(/\.\.\./g, "")) }, "🔊"),
           h("span", {}, h("b", { lang: "en" }, en), h("span", { class: "muted" }, ko))))) : null),
+      h("div", { class: "end-phrase" },
+        h("span", {}, "대화를 끝낼 때는 이렇게 말해요"),
+        h("b", { lang: "en" }, end),
+        h("button", { class: "speak small-speak", "aria-label": "발음 듣기", onclick: () => speak(end) }, "🔊")),
       h("ol", { class: "talk-steps muted" },
-        h("li", {}, "아래 버튼을 누르면 ChatGPT가 열리고 대화가 시작돼요."),
+        h("li", {}, pasteMode ? "아래 버튼을 누르면 우리 대화방이 열려요. 입력칸을 길게 눌러 붙여 넣기 하면 오늘 주제가 들어가요." : "아래 버튼을 누르면 ChatGPT가 열리고 오늘 주제로 대화가 시작돼요."),
         h("li", {}, "ChatGPT 화면의 음성 버튼을 누르면 말로 대화할 수 있어요."),
-        h("li", {}, "다 끝나면 이 화면으로 돌아와 '대화를 마쳤어요'를 눌러요.")),
+        h("li", {}, `"${end}"라고 말하면 ChatGPT가 정리해 주고 대화가 끝나요. 그다음 이 화면으로 돌아와 '대화를 마쳤어요'를 눌러요.`)),
       h("a", { class: "btn primary talk-go", href: url, target: "_blank", rel: "noopener noreferrer",
         onclick: () => { copyText(prompt); if (!screen.startedAt) { screen.startedAt = Date.now(); setTimeout(render, 0); } } }, "ChatGPT로 대화 시작"),
       started ? h("button", { class: "btn talk-done", onclick: () => {
@@ -554,6 +580,21 @@
         h("label", { for: "customTopic" }, h("strong", {}, "직접 쓰기 (영어 또는 한국어)")),
         h("div", { class: "row" }, h("input", { type: "text", id: "customTopic", maxlength: "80", value: cur && cur.custom ? cur.custom : "", placeholder: "예: Talking about my favorite book" }),
           h("button", { class: "btn", onclick: () => { const v = document.getElementById("customTopic").value.trim(); settings.talkTopic = v ? { custom: v } : null; adminMsg = v ? "주제를 저장했어요" : "자동 주제로 바꿨어요"; render(); } }, "저장")),
+        h("strong", {}, "ChatGPT 연결 주소 (선택)"),
+        h("p", { class: "muted", style: "margin:0" }, "비워 두면 매번 새 채팅이 열리고 규칙과 주제가 함께 들어가요. 맞춤 GPT나 프로젝트 주소를 넣으면 그 지침(아래 규칙)을 쓰는 새 대화가 열리고 오늘 주제만 보내요. 특정 채팅 주소(chatgpt.com/c/…)를 넣으면 그 대화방으로 바로 가고, 주제 문장은 복사돼서 붙여 넣으면 돼요."),
+        h("div", { class: "row" }, h("input", { type: "url", id: "talkLink", value: settings.talkLink, placeholder: "https://chatgpt.com/g/... 또는 /c/..." }),
+          h("button", { class: "btn", onclick: () => {
+            const v = document.getElementById("talkLink").value.trim();
+            if (v && !/^https:\/\/(chatgpt\.com|chat\.openai\.com)\//.test(v)) { adminMsg = "chatgpt.com 주소만 넣을 수 있어요"; return render(); }
+            settings.talkLink = v; adminMsg = v ? "연결 주소를 저장했어요" : "새 채팅으로 열도록 바꿨어요"; render();
+          } }, "저장")),
+        h("label", { for: "talkEnd" }, h("strong", {}, "대화를 끝내는 말")),
+        h("div", { class: "row" }, h("input", { type: "text", id: "talkEnd", maxlength: "40", value: settings.talkEnd }),
+          h("button", { class: "btn", onclick: () => { settings.talkEnd = document.getElementById("talkEnd").value.trim() || "Goodbye, teacher!"; adminMsg = "끝내는 말을 저장했어요. 맞춤 GPT·프로젝트를 쓰면 지침도 다시 붙여 넣어 주세요"; render(); } }, "저장")),
+        h("details", { class: "talk-help" }, h("summary", {}, "맞춤 GPT·프로젝트에 넣을 지침 보기"),
+          h("p", { class: "muted" }, "ChatGPT에서 맞춤 GPT(또는 프로젝트)를 만들고 '지침(Instructions)'에 아래 글을 붙여 넣은 뒤, 그 주소를 위 칸에 저장해요. 수준은 매번 보내는 주제 문장에 들어가요."),
+          h("textarea", { readonly: true, rows: "7", "aria-label": "지침" }, talkRules(1, settings.talkEnd, false)),
+          h("button", { class: "btn", onclick: (e) => { copyText(talkRules(1, settings.talkEnd, false)); e.target.textContent = "복사했어요"; } }, "지침 복사")),
         h("strong", {}, "ChatGPT 사용 안내"),
         h("p", { class: "muted", style: "margin:0" }, "대화는 이 기기에서 로그인한 ChatGPT 계정으로 진행돼요. OpenAI 약관상 ChatGPT는 13세 이상(18세 미만은 보호자 동의)만 쓸 수 있으니 아이 나이에 맞는지 먼저 확인해 주세요. Android 앱에서는 학습 잠금 중에도 ChatGPT 앱만 열 수 있게 할 예정이에요."));
     } else if (tab === 3) {

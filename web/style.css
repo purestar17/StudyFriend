@@ -272,3 +272,5 @@ input[type="text"], input[type="password"], input[type="url"] {
 .talk-done { width: min(420px, 100%); }
 .talk-help summary { cursor: pointer; color: var(--muted); }
 .talk-help textarea { width: 100%; font: inherit; font-size: 14px; border-radius: 12px; border: 2px solid var(--line); background: var(--panel); color: var(--ink); padding: 10px; }
+.end-phrase { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px; border-radius: 16px; background: color-mix(in srgb, var(--talk) 12%, var(--panel)); }
+.end-phrase b { font-size: 22px; }
