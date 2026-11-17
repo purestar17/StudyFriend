@@ -34,10 +34,14 @@
     return (byDay && byDay[isoDay(date)]) || schedule.tasks || {};
   }
 
-  /** 과제 진행: 이 시간 칸이 시작된 뒤 끝낸 학습 횟수를 과목별로 센다 */
-  function taskProgress(schedule, sessions, since) {
+  /**
+   * 과제 진행: 이 시간 칸이 시작된 뒤 끝낸 학습 횟수를 과목별로 센다.
+   * exempt: 포상 면제권 { all, subjects: Set } — 면제된 과목은 다 한 것으로 친다
+   */
+  function taskProgress(schedule, sessions, since, exempt) {
     const t = since ? since.getTime() : 0;
     const items = Object.entries(tasksFor(schedule, since || new Date())).filter(([, n]) => n > 0).map(([id, need]) => {
+      if (exempt && (exempt.all || (exempt.subjects && exempt.subjects.has(id)))) return { id, need, done: need, exempt: true };
       const done = sessions.filter((x) => x.subject === id && x.startedAt >= t).length;
       return { id, need, done: Math.min(done, need) };
     });

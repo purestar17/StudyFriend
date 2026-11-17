@@ -30,6 +30,8 @@
     get penInput() { return store.get("penInput", true); }, set penInput(v) { store.set("penInput", v); },
     /** 학습 시간표 (schedule.js 참고) */
     get schedule() { return store.get("schedule", DEFAULT_SCHEDULE); }, set schedule(v) { store.set("schedule", v); },
+    /** 포상 설정 (rewards.js 참고) */
+    get rewards() { return store.get("rewards", DEFAULT_REWARDS); }, set rewards(v) { store.set("rewards", v); },
     level(id) { const s = subjectById(id); return Math.min(Math.max(store.get("level." + id, 1), 1), s.levels.length); },
     setLevel(id, lv) { store.set("level." + id, lv); },
   };
@@ -51,6 +53,15 @@
     update(id, patch) { store.set("wrongNotes", this.all().map((n) => (n.id === id ? { ...n, ...patch } : n))); },
     remove(id) { store.set("wrongNotes", this.all().filter((n) => n.id !== id)); },
     clear() { store.set("wrongNotes", []); },
+  };
+  /** 받은 포상: { id, at, type: "subject"|"day"|"text", subject, text, usedAt, usedDay, givenAt } */
+  const prizes = {
+    all() { return store.get("prizes", []); },
+    add(p) { store.set("prizes", [p, ...this.all()].slice(0, 300)); },
+    update(id, patch) { store.set("prizes", this.all().map((x) => (x.id === id ? { ...x, ...patch } : x))); },
+    remove(id) { store.set("prizes", this.all().filter((x) => x.id !== id)); },
+    /** 아직 안 쓴 면제권 + 아직 안 받은 직접 쓴 포상 */
+    waiting() { return this.all().filter((x) => (x.type === "text" ? !x.givenAt : !x.usedAt)); },
   };
   const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
@@ -167,8 +178,21 @@
     const wrong = wrongItems.map((x) => `${x.q.big ?? x.q.prompt} → 정답: ${x.q.answer} (고른 답: ${x.given})`);
     sessions.add({ id: now, subject: s.subject, level: s.level, unit: unitName, total, correct, startedAt: s.startedAt,
       durationSec: Math.round((now - s.startedAt) / 1000), wrong });
-    go({ name: "result", r: { subject: s.subject, level: s.level, unitId: s.unit, bookId: s.bookId, unit: unitName, total, correct, items, change } });
+    const prize = grantPrize({ total, correct });
+    go({ name: "result", r: { subject: s.subject, level: s.level, unitId: s.unit, bookId: s.bookId, unit: unitName, total, correct, items, change, prize } });
   }
+
+  /** 학습을 끝냈을 때 포상 뽑기. 나오면 보관함에 넣고 돌려준다 */
+  function grantPrize(result) {
+    const today = prizes.all().filter((x) => x.at >= startOfToday()).length;
+    const got = drawReward(settings.rewards, result, today);
+    if (!got) return null;
+    const p = { id: `${Date.now()}-${Math.floor(Math.random() * 1e4)}`, at: Date.now(), ...got, usedAt: null, usedDay: null, givenAt: null };
+    prizes.add(p);
+    return p;
+  }
+  const prizeName = (p) => (p.type === "day" ? "하루 학습 면제권" : p.type === "subject" ? `${subjectById(p.subject)?.title || p.subject} 면제권` : p.text);
+  const prizeMark = (p) => (p.type === "day" ? "🎟️" : p.type === "subject" ? "🎫" : "🎁");
 
   /** 결과 화면에서 틀린 문제 하나를 다시 푼다 */
   function retry(r, item) {
@@ -188,6 +212,7 @@
           h("h1", {}, `${settings.name}, 안녕!`),
           h("div", { class: "muted" }, today.length === 0 ? "오늘은 아직 공부를 시작하지 않았어요. 과목을 골라 볼까요?"
             : `오늘 ${today.length}번 공부했어요 · ${total}문제 중 ${right}개 정답`)),
+        prizeButton(),
         h("button", { class: "icon-btn", "aria-label": "관리자 모드", onclick: () => go({ name: "pin" }) }, "⚙ 관리자")),
       h("div", { class: "subjects" }, SUBJECTS.map((s) => {
         const done = today.filter((x) => x.subject === s.id).length;
@@ -206,7 +231,7 @@
   function studyNow() {
     const sc = settings.schedule, slot = activeSlot(sc);
     if (!slot) return null;
-    return { slot, ...taskProgress(sc, sessions.all(), slot.start) };
+    return { slot, ...taskProgress(sc, sessions.all(), slot.start, exemptionsFor(prizes.all())) };
   }
   let reportedKey = null;
   /** 과제를 다 했으면 앱에 알려 잠금을 푼다 (시간 칸마다 한 번) */
@@ -235,7 +260,7 @@
         return h("button", { class: "task" + (ok ? " ok" : ""), style: `--c:${colorOf(i.id)}`, onclick: () => (HUB[i.id] ? go({ name: HUB[i.id] }) : startQuiz(i.id)) },
           h("span", { class: "mark", "aria-hidden": "true" }, ok ? "✔" : s.mark),
           h("span", { class: "grow" }, s.title),
-          h("span", { class: "count" }, `${i.done} / ${i.need}회`));
+          h("span", { class: "count" }, i.exempt ? "면제 🎫" : `${i.done} / ${i.need}회`));
       })),
       h("p", { class: "muted" }, "과목마다 정해진 횟수만큼 끝까지 풀면 과제가 채워져요."));
   }
@@ -403,6 +428,7 @@
         h("div", { class: "score" }, "👏"),
         h("h2", { style: "font-size:30px" }, "영어로 대화를 마쳤어요!"),
         h("div", { class: "muted" }, `주제: ${r.topic} · 약 ${min}분`),
+        prizeCard(r),
         h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: () => go({ name: "home" }) }, "처음으로")))];
     }
     const rate = r.total ? Math.floor((r.correct * 100) / r.total) : 0;
@@ -414,6 +440,7 @@
         `${levelLabel(subject, r.level)} 합격 기준 70% · ${rate >= 70 ? "합격이에요!" : "아직 불합격이에요"}`) : null,
       r.change === 1 ? h("div", { class: "lvup" }, `레벨 업! 다음부터 ${levelLabel(subject, r.level + 1)} 문제가 나와요`) : null,
       r.change === -1 ? h("div", { class: "lvdown" }, `다음에는 ${levelLabel(subject, r.level - 1)} 문제로 다시 연습해 봐요`) : null,
+      prizeCard(r),
       resultList(r),
       similarBox(r),
       h("div", { class: "actions" },
@@ -633,7 +660,8 @@
       started ? h("button", { class: "btn talk-done", onclick: () => {
         const durationSec = Math.round((Date.now() - started) / 1000);
         sessions.add({ id: Date.now(), subject: "ENGLISH_TALK", kind: "talk", level: lv, unit: t.en, total: 0, correct: 0, startedAt: started, durationSec, wrong: [] });
-        go({ name: "result", r: { subject: "ENGLISH_TALK", kind: "talk", topic: t.en, durationSec } });
+        const prize = grantPrize({ kind: "talk", total: 0, correct: 0 });
+        go({ name: "result", r: { subject: "ENGLISH_TALK", kind: "talk", topic: t.en, durationSec, prize } });
       } }, "대화를 마쳤어요") : null,
       h("details", { class: "talk-help" }, h("summary", {}, "ChatGPT가 열리지 않으면"),
         h("p", { class: "muted" }, "시작 문장을 복사해서 ChatGPT 앱에 붙여 넣어 주세요. 버튼을 누를 때 자동으로 복사돼요."),
@@ -836,6 +864,37 @@
     sec.classList.add("framed");
   }
 
+  /** 작은 그림 단추 */
+  function icon(name) {
+    const paths = {
+      download: "M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14",
+      x: "M6 6l12 12M18 6L6 18",
+    };
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("fill", "none"); svg.setAttribute("stroke", "currentColor"); svg.setAttribute("stroke-width", "2.2");
+    svg.setAttribute("stroke-linecap", "round"); svg.setAttribute("stroke-linejoin", "round");
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path"); p.setAttribute("d", paths[name]); svg.append(p);
+    return svg;
+  }
+
+  /** 확인 창: 예 → true, 아니요·바깥 누르기·Esc → false */
+  function confirmModal({ title, text, ok = "확인", cancel = "취소", danger = false }) {
+    return new Promise((resolve) => {
+      const prev = document.activeElement;
+      const close = (v) => { back.remove(); document.removeEventListener("keydown", onKey, true); try { prev && prev.focus(); } catch { /* 무시 */ } resolve(v); };
+      const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(false); } };
+      const yes = h("button", { class: "btn " + (danger ? "danger" : "primary"), onclick: () => close(true) }, ok);
+      const back = h("div", { class: "modal-back", onclick: (e) => { if (e.target === back) close(false); } },
+        h("div", { class: "modal", role: "alertdialog", "aria-modal": "true", "aria-labelledby": "modal-title" },
+          h("h2", { id: "modal-title" }, title), text ? h("p", {}, text) : null,
+          h("div", { class: "row" }, h("button", { class: "btn", onclick: () => close(false) }, cancel), yes)));
+      document.body.append(back);
+      document.addEventListener("keydown", onKey, true);
+      yes.focus();
+    });
+  }
+
   /** 낱말 뒤에 '로/으로' (받침이 있고 ㄹ이 아니면 '으로') */
   const withRo = (w) => { const c = String(w).charCodeAt(String(w).length - 1) - 0xac00; const j = c >= 0 && c < 11172 ? c % 28 : 0; return w + (j && j !== 8 ? "으로" : "로"); };
   /** 관리자: AI 수준 분석과 레벨 추천 */
@@ -911,19 +970,144 @@
     const box = h("div", { class: "section" }, h("p", { class: "muted" }, "불러오는 중…"));
     if (!window.Notepad) return box;
     Notepad.list().then((items) => {
-      const fmt = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
+      const p2 = (n) => String(n).padStart(2, "0");
+      const fmt = { format: (d) => `${d.getMonth() + 1}.${d.getDate()}(${DAY_NAMES[isoDay(d)]}) ${p2(d.getHours())}:${p2(d.getMinutes())}` };
       box.replaceChildren(
         h("p", { class: "muted", style: "margin:0" }, "'새 종이'를 누르거나 앱을 닫을 때 연습장이 그림으로 저장돼요. 최근 60장까지 보관해요." + (native ? " 태블릿 갤러리의 '공부친구' 앨범에도 저장돼요." : "")),
         items.length ? h("div", { class: "pad-gallery" }, items.map((it) => {
           const url = URL.createObjectURL(it.blob);
+          const when = fmt.format(new Date(it.at));
           return h("figure", {},
-            h("a", { href: url, target: "_blank", rel: "noopener", "aria-label": "크게 보기" }, h("img", { src: url, alt: `연습장 ${fmt.format(new Date(it.at))}`, loading: "lazy" })),
-            h("figcaption", {}, h("span", { class: "grow" }, fmt.format(new Date(it.at))),
-              h("a", { class: "btn small-btn", href: url, download: `연습장-${it.id}.png` }, "받기"),
-              h("button", { class: "btn small-btn", "aria-label": "지우기", onclick: () => Notepad.remove(it.id).then(render) }, "✕")));
+            h("a", { href: url, target: "_blank", rel: "noopener", "aria-label": "크게 보기" }, h("img", { src: url, alt: `연습장 ${when}`, loading: "lazy" })),
+            h("figcaption", { class: "stamp" }, h("span", { class: "when" }, when),
+              h("a", { class: "icon-sm", href: url, download: `연습장-${it.id}.png`, "aria-label": "내려받기", title: "내려받기" }, icon("download")),
+              h("button", { class: "icon-sm danger", "aria-label": "지우기", title: "지우기", onclick: () =>
+                confirmModal({ title: "연습장을 지울까요?", text: `${when}에 저장한 연습장을 지워요. 지우면 되돌릴 수 없어요.`, ok: "지우기", danger: true })
+                  .then((yes) => yes && Notepad.remove(it.id).then(render)) }, icon("x"))));
         })) : h("p", {}, "아직 저장된 연습장이 없어요."));
     }).catch(() => box.replaceChildren(h("p", {}, "저장된 연습장을 불러오지 못했어요.")));
     return box;
+  }
+
+  // ---- 포상 ----
+  function prizeButton() {
+    if (!settings.rewards.enabled && !prizes.all().length) return null;
+    const n = prizes.waiting().length;
+    return h("button", { class: "icon-btn prize-btn", "aria-label": `포상 보관함${n ? `, ${n}개` : ""}`, onclick: () => go({ name: "prizes" }) },
+      "🎁 보관함", n ? h("span", { class: "badge" }, n) : null);
+  }
+
+  /** 결과 화면의 선물 상자: 눌러서 연다 */
+  function prizeCard(r) {
+    const p = r.prize;
+    if (!p) return null;
+    if (!r.prizeOpen) return h("button", { class: "gift", onclick: () => { r.prizeOpen = true; render(); } },
+      h("span", { class: "gift-box", "aria-hidden": "true" }, "🎁"), h("span", {}, h("b", {}, "선물이 나왔어요!"), h("span", { class: "muted" }, "눌러서 열어 봐요")));
+    return h("div", { class: "gift open", role: "status" },
+      h("span", { class: "gift-box", "aria-hidden": "true" }, prizeMark(p)),
+      h("span", { class: "grow" }, h("b", {}, prizeName(p)),
+        h("span", { class: "muted" }, p.type === "text" ? "보호자에게 보여 주면 받을 수 있어요." : "보관함에 넣었어요. 필요한 날 꺼내 써요.")),
+      h("button", { class: "btn small-btn", onclick: () => go({ name: "prizes" }) }, "보관함"));
+  }
+
+  /** 면제권을 지금 쓸 수 있는지: { ok, why } */
+  function prizeUsable(p) {
+    const sc = settings.schedule, now = new Date();
+    const studyToday = sc.enabled && (sc.slots || []).some((x) => x.days.includes(isoDay(now)));
+    const ex = exemptionsFor(prizes.all()), st = studyNow(), tasks = tasksFor(sc, now);
+    if (!studyToday) return { ok: false, why: "오늘은 공부 시간이 없어요" };
+    if (ex.all) return { ok: false, why: "오늘은 이미 하루 면제권을 썼어요" };
+    if (p.type === "day") {
+      if (st && st.complete) return { ok: false, why: "오늘 과제를 이미 다 했어요" };
+      return { ok: true };
+    }
+    const title = subjectById(p.subject)?.title || "";
+    if (!(tasks[p.subject] > 0)) return { ok: false, why: `오늘은 ${title} 과제가 없어요` };
+    if (ex.subjects.has(p.subject)) return { ok: false, why: `오늘 ${title} 과제는 이미 면제됐어요` };
+    const it = st && st.items.find((i) => i.id === p.subject);
+    if (it && it.done >= it.need) return { ok: false, why: `오늘 ${title} 과제를 이미 다 했어요` };
+    return { ok: true };
+  }
+
+  /** 아이용 보관함 */
+  function PrizeBox() {
+    const all = prizes.all(), dt = (t) => { const d = new Date(t); return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
+    const passes = all.filter((p) => p.type !== "text" && !p.usedAt);
+    const gifts = all.filter((p) => p.type === "text" && !p.givenAt);
+    const past = all.filter((p) => (p.type === "text" ? p.givenAt : p.usedAt)).slice(0, 20);
+    const use = (p) => confirmModal({ title: `${prizeName(p)}을 쓸까요?`,
+      text: p.type === "day" ? "오늘 해야 할 과제를 모두 쉬어요. 한 번 쓰면 되돌릴 수 없어요." : `오늘 ${subjectById(p.subject)?.title} 과제를 쉬어요. 한 번 쓰면 되돌릴 수 없어요.`, ok: "쓰기" })
+      .then((yes) => { if (!yes) return; prizes.update(p.id, { usedAt: Date.now(), usedDay: ymd(new Date()) }); render(); });
+    const card = (p, actions) => h("div", { class: "prize" + (actions ? "" : " past") },
+      h("span", { class: "mark", "aria-hidden": "true" }, prizeMark(p)),
+      h("span", { class: "grow" }, h("b", {}, prizeName(p)), h("span", { class: "muted small" }, `${dt(p.at)}에 받았어요` +
+        (p.usedAt ? ` · ${dt(p.usedAt)}에 썼어요` : p.givenAt ? ` · ${dt(p.givenAt)}에 받았어요` : ""))),
+      actions);
+    return [
+      h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "나가기", onclick: () => go({ name: "home" }) }, "←"), h("h1", { style: "font-size:28px" }, "🎁 포상 보관함")),
+      !all.length ? h("p", { class: "muted" }, "아직 받은 포상이 없어요. 공부를 끝까지 하면 선물이 나올 수도 있어요!") : null,
+      passes.length ? h("section", { class: "prize-group" }, h("h2", {}, "면제권"), passes.map((p) => {
+        const u = prizeUsable(p);
+        return card(p, h("span", { class: "prize-act" }, h("button", { class: "btn small-btn primary", disabled: !u.ok, onclick: () => use(p) }, "쓰기"), u.ok ? null : h("span", { class: "muted small" }, u.why)));
+      })) : null,
+      gifts.length ? h("section", { class: "prize-group" }, h("h2", {}, "받을 선물"), h("p", { class: "muted", style: "margin:0" }, "보호자에게 보여 주세요."),
+        gifts.map((p) => card(p, h("span", { class: "prize-act muted small" }, "기다리는 중")))) : null,
+      past.length ? h("section", { class: "prize-group" }, h("h2", {}, "지난 포상"), past.map((p) => card(p, null))) : null,
+    ];
+  }
+
+  /** 관리자: 포상 설정과 받은 포상 */
+  function RewardSettings(toggle) {
+    if (!screen.rw) screen.rw = JSON.parse(JSON.stringify(settings.rewards));
+    const d = screen.rw, total = totalChance(d.items);
+    const save = () => {
+      d.items.forEach((x) => { x.chance = clampChance(x.chance); if (x.type === "text") x.text = String(x.text || "").trim(); });
+      const err = checkRewards(d);
+      if (err) { adminMsg = err; return render(); }
+      settings.rewards = JSON.parse(JSON.stringify(d)); adminMsg = "포상 설정을 저장했어요"; render();
+    };
+    const row = (x, i) => h("div", { class: "prize-row" },
+      h("select", { "aria-label": `${i + 1}번 포상 종류`, onchange: (e) => { x.type = e.target.value; if (x.type === "subject" && !x.subject) x.subject = SUBJECTS[0].id; render(); } },
+        Object.entries(REWARD_TYPES).map(([k, t]) => h("option", { value: k, selected: x.type === k }, t))),
+      x.type === "subject" ? h("select", { class: "grow", "aria-label": `${i + 1}번 면제 과목`, onchange: (e) => { x.subject = e.target.value; } },
+        SUBJECTS.map((s) => h("option", { value: s.id, selected: x.subject === s.id }, `${s.title} 과제 면제`)))
+        : x.type === "text" ? h("input", { class: "grow", type: "text", value: x.text || "", maxlength: "40", placeholder: "예: 아이스크림, 게임 30분", "aria-label": `${i + 1}번 포상 내용`, oninput: (e) => { x.text = e.target.value; } })
+          : h("span", { class: "grow muted" }, "그날 과제를 모두 쉬어요"),
+      h("span", { class: "chance" }, h("input", { type: "number", min: "0.1", max: "100", step: "0.1", inputmode: "decimal", value: x.chance, "aria-label": `${i + 1}번 확률(%)`,
+        onchange: (e) => { x.chance = clampChance(e.target.value); render(); } }), "%"),
+      h("button", { class: "btn small-btn", "aria-label": `${i + 1}번 포상 지우기`, onclick: () => { d.items.splice(i, 1); render(); } }, "✕"));
+    const list = prizes.all().slice(0, 30), dt = (t) => { const x = new Date(t); return `${x.getMonth() + 1}/${x.getDate()}`; };
+    return h("div", { class: "section" },
+      h("div", { class: "setting" },
+        h("div", { class: "grow" }, h("strong", {}, "포상 쓰기"),
+          h("p", {}, "학습을 끝내면 정해 둔 확률로 포상이 나와요. 면제권은 아이가 보관함에서 골라 쓰고, 직접 쓴 포상은 보호자가 주고 '줬어요'를 눌러요.")),
+        toggle(d.enabled, (v) => (d.enabled = v), "포상 쓰기")),
+      h("strong", {}, "포상이 나오는 때"),
+      h("div", { class: "chips" },
+        h("button", { class: "chip", "aria-pressed": String(d.when === "finish"), onclick: () => { d.when = "finish"; render(); } }, "학습을 끝까지 하면"),
+        h("button", { class: "chip", "aria-pressed": String(d.when === "score"), onclick: () => { d.when = "score"; render(); } }, "점수가 기준 이상이면")),
+      d.when === "score" ? h("div", { class: "row" }, h("span", {}, "정답률"),
+        h("input", { type: "number", class: "pct", min: "1", max: "100", value: d.minScore, inputmode: "numeric", "aria-label": "기준 정답률(%)", onchange: (e) => { d.minScore = Math.round(Number(e.target.value) || 0); } }),
+        h("span", {}, "% 이상일 때 (영어 회화처럼 점수가 없는 학습은 포상이 안 나와요)")) : null,
+      h("strong", {}, "하루에 받을 수 있는 포상"),
+      h("div", { class: "chips" }, [1, 2, 3, 5, 0].map((n) => h("button", { class: "chip", "aria-pressed": String(d.dailyMax === n), onclick: () => { d.dailyMax = n; render(); } }, n ? `${n}개까지` : "제한 없음"))),
+      h("strong", {}, "포상 목록과 확률"),
+      h("p", { class: "muted", style: "margin:0" }, "학습을 한 번 끝낼 때마다 아래 확률로 하나를 뽑아요. 확률을 모두 더해 100% 이하로 정하고, 남은 만큼은 포상이 없어요."),
+      d.items.map(row),
+      h("button", { class: "add-row", onclick: () => { d.items.push({ id: `r${Date.now()}`, type: "text", text: "", chance: 10 }); render(); } }, "+ 포상 더하기"),
+      h("div", { class: "chance-sum" + (total > 100 ? " bad" : "") }, total > 100 ? `모두 더해 ${total}%예요. 100% 이하로 줄여 주세요.` : `모두 더해 ${total}% · 나머지 ${Math.round((100 - total) * 10) / 10}%는 포상 없음`),
+      h("button", { class: "btn primary", onclick: save }, "포상 설정 저장"),
+      h("strong", {}, "받은 포상"),
+      list.length ? h("div", { class: "prize-log" }, list.map((p) => h("div", { class: "prize-line" },
+        h("span", { class: "muted small when" }, dt(p.at)),
+        h("span", { class: "grow" }, prizeMark(p), " ", prizeName(p)),
+        p.type === "text"
+          ? h("button", { class: "chip", "aria-pressed": String(!!p.givenAt), onclick: () => { prizes.update(p.id, { givenAt: p.givenAt ? null : Date.now() }); render(); } }, p.givenAt ? `${dt(p.givenAt)} 줬어요` : "줬어요")
+          : h("span", { class: "muted small" }, p.usedAt ? `${dt(p.usedAt)} 씀` : "안 씀"),
+        h("button", { class: "icon-sm danger", "aria-label": "포상 지우기", title: "지우기", onclick: () =>
+          confirmModal({ title: "포상을 지울까요?", text: `${prizeName(p)}을(를) 보관함에서 빼요.${p.usedAt ? " 오늘 쓴 면제권이면 면제도 함께 취소돼요." : ""}`, ok: "지우기", danger: true })
+            .then((yes) => { if (yes) { prizes.remove(p.id); render(); } }) }, icon("x")))))
+        : h("p", { class: "muted", style: "margin:0" }, "아직 나온 포상이 없어요."));
   }
 
   /** 관리자: 학습 시간표 · 오늘의 과제 · 잠금 */
@@ -950,7 +1134,8 @@
         h("span", {}, "까지"),
         d.slots.length > 1 ? h("button", { class: "btn small-btn slot-del", "aria-label": `${i + 1}번 시간 지우기`, onclick: () => { d.slots.splice(i, 1); render(); } }, "✕") : null));
     // 요일별 과제: 처음이면 공통 과제를 모든 요일에 복사해 둔다
-    if (!d.tasksByDay) { d.tasksByDay = {}; for (let k = 1; k <= 7; k++) d.tasksByDay[k] = { ...d.tasks }; }
+    if (!d.tasksByDay) d.tasksByDay = {};
+    for (let k = 1; k <= 7; k++) if (!d.tasksByDay[k]) d.tasksByDay[k] = { ...(d.tasks || {}) };
     const usedDays = new Set(d.slots.flatMap((x) => x.days));
     if (!screen.taskDay) screen.taskDay = usedDays.has(isoDay(new Date())) ? isoDay(new Date()) : [...usedDays].sort()[0] || 1;
     const day = screen.taskDay, dayTasks = d.tasksByDay[day];
@@ -1033,9 +1218,9 @@
   }
 
   function Admin() {
-    const tabs = ["학습 레벨", "학습 기록", "오답 노트", "연습장", "영어 단어장", "영어 회화", "학습 시간표", "AI 설정", "일반"];
+    const tabs = ["학습 레벨", "학습 기록", "오답 노트", "연습장", "영어 단어장", "영어 회화", "학습 시간표", "포상", "AI 설정", "일반"];
     const tab = screen.tab, name = tabs[tab];
-    const setTab = (i) => { adminMsg = ""; screen.tab = i; screen.sched = null; screen.taskDay = null; screen.confirmOwner = false; screen.confirmClear = false; screen.noteFilter = null; screen.confirmAiOut = false; render(); };
+    const setTab = (i) => { adminMsg = ""; screen.tab = i; screen.sched = null; screen.taskDay = null; screen.confirmOwner = false; screen.confirmClear = false; screen.noteFilter = null; screen.confirmAiOut = false; screen.rw = null; render(); };
     const toggle = (on, onChange, label) => h("button", { class: "switch", role: "switch", "aria-checked": String(on), "aria-label": label, onclick: () => { onChange(!on); render(); } });
     let content;
     if (name === "학습 레벨") {
@@ -1052,7 +1237,8 @@
     } else if (name === "학습 기록") {
       const all = sessions.all();
       const week = all.filter((x) => x.startedAt >= Date.now() - 7 * 864e5);
-      const fmt = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
+      const p2 = (n) => String(n).padStart(2, "0");
+      const fmt = { format: (d) => `${d.getMonth() + 1}.${d.getDate()}(${DAY_NAMES[isoDay(d)]}) ${p2(d.getHours())}:${p2(d.getMinutes())}` };
       content = all.length === 0 ? h("p", {}, "아직 학습 기록이 없어요.") : h("div", { class: "section" },
         h("strong", {}, "최근 7일 과목별 정답률"),
         h("div", { class: "stats" }, SUBJECTS.map((s) => {
@@ -1185,6 +1371,8 @@
         h("p", { class: "muted", style: "margin:0" }, "대화는 이 기기에서 로그인한 ChatGPT 계정으로 진행돼요. OpenAI 약관상 ChatGPT는 13세 이상(18세 미만은 보호자 동의)만 쓸 수 있으니 아이 나이에 맞는지 먼저 확인해 주세요. Android 앱에서는 학습 잠금 중에도 ChatGPT 앱만 열 수 있게 할 예정이에요."));
     } else if (name === "학습 시간표") {
       content = ScheduleEditor(toggle);
+    } else if (name === "포상") {
+      content = RewardSettings(toggle);
     } else if (name === "AI 설정") {
       content = AiSettings(toggle);
     } else {
@@ -1216,7 +1404,7 @@
   }
 
   function render() {
-    const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin, hanjaHub: HanjaHub, mathHub: MathHub, wordHub: WordHub, talk: Talk, learnList: LearnList, learnChar: LearnChar };
+    const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin, hanjaHub: HanjaHub, mathHub: MathHub, wordHub: WordHub, talk: Talk, learnList: LearnList, learnChar: LearnChar, prizes: PrizeBox };
     app.replaceChildren(...views[screen.name]().flat().filter(Boolean));
     syncStudy();
   }

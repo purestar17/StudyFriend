@@ -157,4 +157,44 @@ if (Pen.recognize(many, false) !== "375") throw new Error("펜 정수 " + Pen.re
   if (!SC.checkSchedule({ ...sc, slots: [{ days: [1], start: "18:00", end: "16:00" }] })) throw new Error("거꾸로 시간 통과됨");
   if (!SC.checkSchedule({ ...sc, tasks: { MATH: 0 } })) throw new Error("과제 없음 통과됨");
 }
+// ---- 포상 ----
+{
+  const R = require(W + "rewards.js");
+  const eq = (a, b, m) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`포상 ${m}: ${JSON.stringify(a)} ≠ ${JSON.stringify(b)}`); };
+  const SC = require(W + "schedule.js");
+  const cfg = { enabled: true, when: "finish", minScore: 80, dailyMax: 2, items: [
+    { type: "text", text: " 아이스크림 ", chance: 30 }, { type: "subject", subject: "MATH", chance: 10 }, { type: "day", chance: 5 }] };
+  eq(R.checkRewards(cfg), null, "포상 설정 올바름");
+  eq(R.totalChance(cfg.items), 45, "확률 합");
+  if (!R.checkRewards({ ...cfg, items: [...cfg.items, { type: "text", text: "x", chance: 60 }] })) throw new Error("100% 넘는 확률 통과됨");
+  if (!R.checkRewards({ ...cfg, items: [{ type: "text", text: "  ", chance: 5 }] })) throw new Error("빈 포상 통과됨");
+  if (!R.checkRewards({ ...cfg, items: [{ type: "day", chance: 0 }] })) throw new Error("0% 포상 통과됨");
+  const res = { total: 10, correct: 7 };
+  eq(R.drawReward(cfg, res, 0, () => 0.1), { type: "text", subject: undefined, text: "아이스크림" }, "10 → 글 포상");
+  eq(R.drawReward(cfg, res, 0, () => 0.35), { type: "subject", subject: "MATH", text: undefined }, "35 → 수학 면제권");
+  eq(R.drawReward(cfg, res, 0, () => 0.42).type, "day", "42 → 하루 면제권");
+  eq(R.drawReward(cfg, res, 0, () => 0.45), null, "45 → 없음");
+  eq(R.drawReward(cfg, res, 2, () => 0), null, "하루 최대");
+  eq(R.drawReward({ ...cfg, dailyMax: 0 }, res, 99, () => 0).type, "text", "제한 없음");
+  eq(R.drawReward({ ...cfg, enabled: false }, res, 0, () => 0), null, "꺼짐");
+  const sc = { ...cfg, when: "score" };
+  eq(R.drawReward(sc, res, 0, () => 0), null, "70% < 80%");
+  eq(R.drawReward(sc, { total: 10, correct: 8 }, 0, () => 0).type, "text", "80% 이상");
+  eq(R.drawReward(sc, { kind: "talk", total: 0, correct: 0 }, 0, () => 0), null, "회화는 점수 조건에서 제외");
+  eq(R.drawReward(cfg, { kind: "talk", total: 0, correct: 0 }, 0, () => 0).type, "text", "회화도 끝까지 조건");
+  // 확률이 대략 맞는지
+  let got = 0; const N = 20000;
+  for (let i = 0; i < N; i++) if (R.drawReward(cfg, res, 0)) got++;
+  if (Math.abs(got / N - 0.45) > 0.02) throw new Error("확률이 어긋남 " + got / N);
+  // 면제권이 과제 진행에 들어가는지
+  const day = new Date(2026, 10, 17, 16, 30), today = R.ymd(day);
+  const ex = R.exemptionsFor([{ type: "subject", subject: "MATH", usedAt: 1, usedDay: today }, { type: "day", usedAt: 1, usedDay: "2026-11-16" }, { type: "day", usedAt: null }], day);
+  eq([ex.all, [...ex.subjects]], [false, ["MATH"]], "오늘 쓴 면제권만");
+  const sched = { enabled: true, slots: [{ days: [2], start: "16:00", end: "18:00" }], tasks: { MATH: 2, HANJA: 1 } };
+  const since = new Date(2026, 10, 17, 16, 0), ses = [{ subject: "HANJA", startedAt: since.getTime() + 1000 }];
+  let pr = SC.taskProgress(sched, ses, since, ex);
+  eq([pr.items[0], pr.complete], [{ id: "MATH", need: 2, done: 2, exempt: true }, true], "수학 면제로 완료");
+  pr = SC.taskProgress(sched, [], since, { all: true, subjects: new Set() });
+  eq(pr.complete, true, "하루 면제");
+}
 console.log(`통과: 문제 ${n}개 검사, 펜 인식 견본 ${penAll - penMiss.length}/${penAll}`);

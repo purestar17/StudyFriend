@@ -11,6 +11,9 @@
   let page = get("page", "plain"), color = get("color", PENS[0][0]), size = get("size", 4), erasing = false;
   const strokes = []; // { color, size, erase, pts: [{x,y,p}] }
   let cur = null, penSeen = false, open = false;
+  // 얼마나 꺼낼지(0~1, 당긴 만큼 남는다)와 비치게 보기
+  let shownPart = get("shown", 1), seeThrough = get("see", false);
+  const maxW = () => Math.min(620, window.innerWidth - 44);
   let paperId = Date.now(), dirty = false;
 
   const el = (tag, attrs = {}, ...kids) => {
@@ -45,6 +48,8 @@
       chip("지우개", erasing, () => { erasing = !erasing; buildBar(); }));
     const acts = el("div", { class: "pad-group" },
       el("button", { class: "pad-chip pad-undo", onclick: () => { if (strokes.pop()) dirty = true; redraw(); }, "aria-label": "되돌리기" }, "↶"),
+      el("button", { class: "pad-chip pad-see", "aria-pressed": String(seeThrough), onclick: () => { seeThrough = !seeThrough; set("see", seeThrough); applySee(); buildBar(); },
+        title: "뒤에 있는 문제가 비쳐 보여요" }, "비치게"),
       el("button", { class: "pad-chip pad-new", onclick: newPaper }, "새 종이"),
       el("button", { class: "pad-chip pad-close", onclick: () => toggle(false), "aria-label": "연습장 넣기" }, "✕"));
     bar.replaceChildren(pages, pens, acts);
@@ -81,7 +86,7 @@
     const c = document.createElement("canvas");
     c.width = bg.width; c.height = bg.height;
     const x = c.getContext("2d");
-    x.fillStyle = getComputedStyle(paper).backgroundColor || "#fffdf8";
+    x.fillStyle = "#fffdf8";
     x.fillRect(0, 0, c.width, c.height);
     x.drawImage(bg, 0, 0); x.drawImage(ink, 0, 0);
     return c;
@@ -111,13 +116,17 @@
 
   // ---- 종이 그리기 ----
   let W = 0, H = 0, dpr = 1;
+  // 종이(캔버스)는 늘 다 꺼냈을 때 크기로 두고, 조금만 꺼내면 왼쪽 부분만 보인다 (쓴 것이 잘리거나 밀리지 않게)
   function sizeCanvas() {
     const r = paper.getBoundingClientRect();
-    if (!r.width) return;
-    W = r.width; H = r.height; dpr = window.devicePixelRatio || 1;
-    for (const c of [bg, ink]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+    const w = maxW(), hh = r.height || window.innerHeight;
+    if (!w || !hh) return;
+    if (w === W && hh === H && bg.width) return;
+    W = w; H = hh; dpr = window.devicePixelRatio || 1;
+    for (const c of [bg, ink]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); c.style.width = W + "px"; c.style.height = H + "px"; }
     drawBg(); redraw();
   }
+  const applySee = () => wrap.classList.toggle("see-through", seeThrough);
   function drawBg() {
     const x = bg.getContext("2d");
     if (!x || !W) return;
@@ -193,11 +202,17 @@
   ink.addEventListener("pointerup", end);
   ink.addEventListener("pointercancel", end);
 
-  // ---- 꺼내기·넣기: 손잡이를 누르거나 왼쪽으로 당긴다 ----
-  function toggle(on) {
+  // ---- 꺼내기·넣기: 손잡이를 누르거나 왼쪽으로 당긴다. 당긴 만큼만 나와 있다 ----
+  const MIN_PART = () => Math.min(1, 280 / maxW());
+  const setShown = (v) => wrap.style.setProperty("--shown", v.toFixed(3));
+  function toggle(on, part) {
     open = on;
+    if (on) {
+      shownPart = Math.max(MIN_PART(), Math.min(1, part ?? shownPart));
+      set("shown", shownPart);
+    }
+    setShown(on ? shownPart : 0);
     wrap.classList.toggle("open", on);
-    wrap.style.removeProperty("--pull");
     handle.setAttribute("aria-expanded", String(on));
     handle.setAttribute("aria-label", on ? "연습장 넣기" : "연습장 꺼내기");
     drawer.setAttribute("aria-hidden", String(!on));
@@ -206,7 +221,7 @@
   }
   let drag = null;
   handle.addEventListener("pointerdown", (e) => {
-    drag = { x: e.clientX, id: e.pointerId, moved: false, w: drawer.getBoundingClientRect().width };
+    drag = { x: e.clientX, id: e.pointerId, moved: false, start: open ? shownPart : 0, now: open ? shownPart : 0 };
     try { handle.setPointerCapture(e.pointerId); } catch { /* 무시 */ }
     wrap.classList.add("dragging");
   });
@@ -214,17 +229,15 @@
     if (!drag || e.pointerId !== drag.id) return;
     const dx = e.clientX - drag.x;
     if (Math.abs(dx) > 6) drag.moved = true;
-    // 얼마나 나와 있는지 0~1
-    const shown = Math.min(1, Math.max(0, (open ? 1 : 0) - dx / drag.w));
-    wrap.style.setProperty("--pull", shown.toFixed(3));
+    drag.now = Math.min(1, Math.max(0, drag.start - dx / maxW()));
+    setShown(drag.now);
   });
   const release = (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     wrap.classList.remove("dragging");
-    const shown = parseFloat(wrap.style.getPropertyValue("--pull"));
-    const moved = drag.moved; drag = null;
-    if (!moved) return; // 그냥 누르면 click에서 처리
-    toggle(isNaN(shown) ? open : shown > (open ? 0.7 : 0.3));
+    const { moved, now } = drag; drag = null;
+    if (!moved) { setShown(open ? shownPart : 0); return; } // 그냥 누르면 click에서 처리
+    if (now < 0.12) toggle(false); else toggle(true, now);
     handle.dataset.skipClick = "1";
   };
   handle.addEventListener("pointerup", release);
@@ -233,9 +246,12 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && open) toggle(false); }, true);
 
   buildBar();
+  applySee();
+  setShown(0);
   drawer.inert = true;
   document.body.append(wrap);
   if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => sizeCanvas()).observe(paper);
+  window.addEventListener("resize", () => sizeCanvas());
   requestAnimationFrame(sizeCanvas);
   window.Notepad = { open: () => toggle(true), close: () => toggle(false), saveNow, list, remove, newPaper, get strokes() { return strokes.length; } };
 })();
