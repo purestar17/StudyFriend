@@ -348,21 +348,23 @@ textarea#bookWords { width: 100%; font: inherit; font-size: 16px; border-radius:
 .notepad-wrap.open .pad-handle { color: var(--accent); }
 .notepad { pointer-events: auto; height: 100%; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); overflow: hidden; min-width: 0; }
 .notepad-wrap.open .notepad, .notepad-wrap.dragging .notepad { box-shadow: -10px 0 30px rgb(0 0 0 / .18); }
-.pad-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 10px 12px; border-bottom: 1px solid var(--line); align-items: center; }
-.pad-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.pad-group:last-child { margin-left: auto; }
-.pad-chip { min-height: 40px; min-width: 40px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 15px; display: inline-flex; align-items: center; justify-content: center; }
+.pad-bar { display: grid; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.pad-bar::-webkit-scrollbar { display: none; }
+.pad-row { display: flex; flex-wrap: nowrap; gap: 12px; align-items: center; width: max-content; }
+.pad-group { display: flex; gap: 4px; flex-wrap: nowrap; align-items: center; flex: none; }
+.pad-acts { padding-right: 12px; border-right: 1px solid var(--line); }
+.pad-chip { height: 32px; min-width: 32px; padding: 0 10px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 13px; line-height: 1; white-space: nowrap; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .pad-chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.pad-chip .dot { width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 2px var(--panel); }
-.pad-chip .line { width: 20px; border-radius: 4px; background: currentColor; }
-.pad-close { font-size: 18px; }
+.pad-chip .dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 2px var(--panel); }
+.pad-chip .line { width: 16px; border-radius: 4px; background: currentColor; }
+
 .pad-paper { position: relative; flex: 1; min-height: 0; background: #fffdf8; overflow: hidden; }
 .pad-paper canvas { position: absolute; left: 0; top: 0; }
 .pad-ink { touch-action: none; cursor: crosshair; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pad-paper { background: #ece8de; } }
 :root[data-theme="dark"] .pad-paper { background: #ece8de; }
 @media (prefers-reduced-motion: reduce) { .notepad-wrap { transition: none; } }
-.pad-undo { font-size: 22px; }
+.pad-undo { font-size: 18px; }
 .pad-toast { position: absolute; left: 50%; bottom: 18px; transform: translate(-50%, 10px); background: var(--ink); color: var(--bg); padding: 8px 16px; border-radius: 99px; font-size: 15px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; white-space: nowrap; }
 .pad-toast.show { opacity: .92; transform: translate(-50%, 0); }
 .pad-new { font-weight: 700; }

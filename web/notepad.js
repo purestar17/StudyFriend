@@ -46,13 +46,14 @@
       ...SIZES.map(([s, label]) => chip(el("span", { class: "line", style: `height:${s}px` }), size === s,
         () => { size = s; set("size", s); buildBar(); }, { "aria-label": label })),
       chip("지우개", erasing, () => { erasing = !erasing; buildBar(); }));
-    const acts = el("div", { class: "pad-group" },
+    const acts = el("div", { class: "pad-group pad-acts" },
       el("button", { class: "pad-chip pad-undo", onclick: () => { if (strokes.pop()) dirty = true; redraw(); }, "aria-label": "되돌리기" }, "↶"),
       el("button", { class: "pad-chip pad-see", "aria-pressed": String(seeThrough), onclick: () => { seeThrough = !seeThrough; set("see", seeThrough); applySee(); buildBar(); },
         title: "뒤에 있는 문제가 비쳐 보여요" }, "비치게"),
-      el("button", { class: "pad-chip pad-new", onclick: newPaper }, "새 종이"),
-      el("button", { class: "pad-chip pad-close", onclick: () => toggle(false), "aria-label": "연습장 넣기" }, "✕"));
-    bar.replaceChildren(pages, pens, acts);
+      el("button", { class: "pad-chip pad-new", onclick: newPaper }, "새 종이"));
+    // 버튼 자리는 고정: 1줄 = 되돌리기·비치게·새 종이 | 배경, 2줄 = 펜 색·굵기·지우개 (연습장 폭이 바뀌어도 줄바꿈하지 않음)
+    pages.classList.add("pad-pages"); pens.classList.add("pad-pens");
+    bar.replaceChildren(el("div", { class: "pad-row" }, acts, pages), el("div", { class: "pad-row" }, pens));
   }
   let toastTimer = 0;
   function toast(text) {
@@ -203,6 +204,7 @@
   ink.addEventListener("pointercancel", end);
 
   // ---- 꺼내기·넣기: 손잡이를 누르거나 왼쪽으로 당긴다. 당긴 만큼만 나와 있다 ----
+  const CLOSE_PX = 40;
   const MIN_PART = () => Math.min(1, 280 / maxW());
   const setShown = (v) => wrap.style.setProperty("--shown", v.toFixed(3));
   function toggle(on, part) {
@@ -221,7 +223,7 @@
   }
   let drag = null;
   handle.addEventListener("pointerdown", (e) => {
-    drag = { x: e.clientX, id: e.pointerId, moved: false, start: open ? shownPart : 0, now: open ? shownPart : 0 };
+    drag = { x: e.clientX, id: e.pointerId, moved: false, wasOpen: open, start: open ? shownPart : 0, now: open ? shownPart : 0 };
     try { handle.setPointerCapture(e.pointerId); } catch { /* 무시 */ }
     wrap.classList.add("dragging");
   });
@@ -235,9 +237,13 @@
   const release = (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     wrap.classList.remove("dragging");
-    const { moved, now } = drag; drag = null;
+    const { moved, now, start, x: drag0x, wasOpen } = drag; drag = null;
     if (!moved) { setShown(open ? shownPart : 0); return; } // 그냥 누르면 click에서 처리
-    if (now < 0.12) toggle(false); else toggle(true, now);
+    // 열린 연습장을 오른쪽으로 40px 넘게 밀면 닫는다. 덜 밀면 원래 자리로
+    const dx = e.clientX - drag0x;
+    if (wasOpen && dx >= CLOSE_PX) toggle(false);
+    else if (wasOpen && dx > 0) toggle(true, start);
+    else if (now < 0.12) toggle(false); else toggle(true, now);
     handle.dataset.skipClick = "1";
   };
   handle.addEventListener("pointerup", release);
