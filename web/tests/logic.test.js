@@ -8,8 +8,11 @@ global.STROKE_COUNTS = require(W + "stroke-counts.js");
 const L = require(W + "logic.js");
 const { SUBJECTS, oneQuestion, makeSession, hanjaQuestion, HanjaTypes } = L;
 global.MathGen = L.MathGen;
-const { mathQuestion, MATH_TYPES } = require(W + "math-workbook.js");
+const MW = require(W + "math-workbook.js");
+const { mathQuestion, MATH_TYPES, mathUnitQuestion, MATH_UNITS, MATH_CHALLENGE } = MW;
 global.mathQuestion = mathQuestion;
+global.mathUnitQuestion = mathUnitQuestion;
+global.TALK_TOPICS = require(W + "talk-topics.js").TALK_TOPICS;
 
 let n = 0;
 const fail = (msg, q) => { throw new Error(msg + " " + JSON.stringify(q)); };
@@ -35,10 +38,10 @@ for (let lv = 1; lv <= CONTENT.hanja.length; lv++) for (const t of Object.keys(H
 }
 // 수학: 학년별 모든 유형
 const evalFrac = (t) => { const m = /^(\d+)\/(\d+)$/.exec(t); return m ? +m[1] / +m[2] : null; };
-for (const [lv, types] of Object.entries(MATH_TYPES)) for (const t of new Set(types)) for (let i = 0; i < 400; i++) {
-  const q = mathQuestion(+lv, t); n++;
+function checkMath(q, t) {
+  n++;
   if (!q.tag) fail("유형 이름 " + t, q);
-  if (/undefined|NaN|Infinity/.test(JSON.stringify(q))) fail("값 오류 " + t, q);
+  if (/undefined|NaN|Infinity|\[object/.test(JSON.stringify(q))) fail("값 오류 " + t, q);
   if (q.choices) {
     if (new Set(q.choices).size !== q.choices.length || q.choices.length < 3 || !q.choices.includes(q.answer)) fail("보기 " + t, q);
     // 분수 보기 중 정답과 값이 같은 오답이 없어야 함
@@ -49,9 +52,29 @@ for (const [lv, types] of Object.entries(MATH_TYPES)) for (const t of new Set(ty
     const v = Number(q.answer);
     if (!Number.isFinite(v) || v < 0) fail("숫자 답 " + t, q);
     if (q.input === "int" && !Number.isInteger(v)) fail("정수 답 " + t, q);
+    if (String(q.answer).replace(".", "").length > 7) fail("답이 너무 김(입력 7자 제한) " + t, q);
+    const m = /^(\d+(?:\.\d+)?) ([+\-×÷]) (\d+(?:\.\d+)?) = \?$/.exec(q.big || "");
+    if (m) {
+      const a = +m[1], b = +m[3];
+      const e = { "+": a + b, "-": a - b, "×": a * b, "÷": a / b }[m[2]];
+      if (Math.abs(e - Number(q.answer)) > 1e-9) fail("계산 정답 " + t, q);
+    }
   }
   if (q.figure && q.figure.kind === "fraction" && !(q.figure.n < q.figure.d)) fail("분수 그림", q);
 }
+for (const [lv, types] of Object.entries(MATH_TYPES)) for (const t of new Set(types)) for (let i = 0; i < 300; i++) checkMath(mathQuestion(+lv, t), t);
+// 단원별·심화 문제
+for (let lv = 1; lv <= 6; lv++) {
+  if (!MATH_UNITS[lv].length || !MATH_CHALLENGE[lv].think.length || !MATH_CHALLENGE[lv].apply.length) throw new Error("단원 없음 " + lv);
+  for (const u of [...MATH_UNITS[lv].map((x) => x.id), "think", "apply", "mix"]) for (let i = 0; i < 400; i++) {
+    const q = mathUnitQuestion(lv, u);
+    checkMath(q, `${lv}학년 ${u}`);
+    if ((u === "think" || u === "apply") && !q.hard) fail("심화 표시", q);
+  }
+  const ses = makeSession("MATH", lv, 10, { unit: MATH_UNITS[lv][0].id });
+  if (ses.length < 5) throw new Error(`단원 문제 수가 너무 적음 ${lv}학년 ${ses.length}`);
+}
+for (const t of TALK_TOPICS) if (!t.id || !t.en || !t.ko || t.phrases.length < 3) throw new Error("회화 주제 " + t.id);
 
 // 모든 급수 한자에 획순 데이터가 있어야 한다
 const fs = require("fs");

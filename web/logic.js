@@ -209,9 +209,9 @@ function koreanQuestion(lv) {
   return { prompt: k.prompt, big: k.big, choices: shuffle([...k.wrong, k.answer]), answer: k.answer, explain: `정답: ${k.answer}` };
 }
 
-function oneQuestion(subjectId, lv) {
+function oneQuestion(subjectId, lv, opts = {}) {
   switch (subjectId) {
-    case "MATH": return mathQuestion(lv);
+    case "MATH": return opts.unit ? mathUnitQuestion(lv, opts.unit) : mathQuestion(lv);
     case "HANJA": return hanjaQuestion(lv);
     case "ENGLISH_WORD": return wordQuestion(lv);
     case "ENGLISH_TALK": return talkQuestion(lv);
@@ -219,12 +219,12 @@ function oneQuestion(subjectId, lv) {
   }
 }
 
-function makeSession(subjectId, lv, count) {
+function makeSession(subjectId, lv, count, opts = {}) {
   const out = [];
   let tries = 0;
   while (out.length < count && tries < count * 20) {
     tries++;
-    const q = oneQuestion(subjectId, lv);
+    const q = oneQuestion(subjectId, lv, opts);
     if (!out.some((o) => o.big === q.big && o.prompt === q.prompt && o.answer === q.answer && o.sentence === q.sentence)) out.push(q);
   }
   return out;

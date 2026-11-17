@@ -13,10 +13,12 @@
     get pin() { return store.get("pin", "0000"); }, set pin(v) { store.set("pin", v); },
     get name() { return store.get("name", "친구"); }, set name(v) { store.set("name", v); },
     get perSession() { return store.get("perSession", 10); }, set perSession(v) { store.set("perSession", v); },
-    get autoLevel() { return store.get("autoLevel", true); }, set autoLevel(v) { store.set("autoLevel", v); },
+    get autoLevel() { return store.get("autoLevel", false); }, set autoLevel(v) { store.set("autoLevel", v); },
     get ai() { return store.get("ai", "NONE"); }, set ai(v) { store.set("ai", v); },
     get relay() { return store.get("relay", ""); }, set relay(v) { store.set("relay", v); },
     get realtime() { return store.get("realtime", false); }, set realtime(v) { store.set("realtime", v); },
+    /** 영어 회화 주제: { id } 또는 { custom }. 없으면 날마다 바뀌는 추천 주제 */
+    get talkTopic() { return store.get("talkTopic", null); }, set talkTopic(v) { store.set("talkTopic", v); },
     get penInput() { return store.get("penInput", true); }, set penInput(v) { store.set("penInput", v); },
     level(id) { const s = subjectById(id); return Math.min(Math.max(store.get("level." + id, 1), 1), s.levels.length); },
     setLevel(id, lv) { store.set("level." + id, lv); },
@@ -55,6 +57,8 @@
     return el;
   }
   const colorOf = (id) => `var(${COLORS[id]})`;
+  const HUB = { HANJA: "hanjaHub", MATH: "mathHub", ENGLISH_TALK: "talk" };
+  const hubOf = (id) => HUB[id] || "home";
   /** 수학 글자 속 분수(3/4)를 위아래로 쌓아 보여 준다 */
   function mathText(text) {
     const parts = String(text).split(/(\d+\/\d+)/);
@@ -72,9 +76,9 @@
     screen = next; render(); window.scrollTo(0, 0);
   }
 
-  function startQuiz(id) {
+  function startQuiz(id, opts = {}) {
     const lv = settings.level(id);
-    go({ name: "quiz", q: { subject: id, level: lv, questions: makeSession(id, lv, settings.perSession), index: 0, correct: 0, answered: null, input: "", pen: [], penText: "", wrong: [], startedAt: Date.now() } });
+    go({ name: "quiz", q: { subject: id, level: lv, unit: opts.unit || null, questions: makeSession(id, lv, settings.perSession, opts), index: 0, correct: 0, answered: null, selected: null, input: "", pen: [], penText: "", wrong: [], startedAt: Date.now() } });
     const first = screen.q.questions[0];
     if (first.speak && first.big === first.speak) speak(first.speak);
   }
@@ -93,7 +97,7 @@
   function next() {
     const s = screen.q;
     if (s.index < s.questions.length - 1) {
-      s.index++; s.answered = null; s.input = ""; s.pen = []; s.penText = ""; render();
+      s.index++; s.answered = null; s.selected = null; s.input = ""; s.pen = []; s.penText = ""; render();
       const q = s.questions[s.index];
       if (q.speak && q.big === q.speak) speak(q.speak);
       return;
@@ -105,9 +109,10 @@
       change = levelChange(total ? s.correct / total : 0, s.level, subject.levels.length);
       if (change) settings.setLevel(s.subject, s.level + change);
     }
-    sessions.add({ id: Date.now(), subject: s.subject, level: s.level, total, correct: s.correct, startedAt: s.startedAt,
+    const unitName = s.unit && typeof mathUnitName === "function" ? mathUnitName(s.level, s.unit) : null;
+    sessions.add({ id: Date.now(), subject: s.subject, level: s.level, unit: unitName, total, correct: s.correct, startedAt: s.startedAt,
       durationSec: Math.round((Date.now() - s.startedAt) / 1000), wrong: s.wrong });
-    go({ name: "result", r: { subject: s.subject, level: s.level, total, correct: s.correct, wrong: s.wrong, change } });
+    go({ name: "result", r: { subject: s.subject, level: s.level, unitId: s.unit, unit: unitName, total, correct: s.correct, wrong: s.wrong, change } });
   }
 
   // ---- 화면 ----
@@ -123,7 +128,7 @@
         h("button", { class: "icon-btn", "aria-label": "관리자 모드", onclick: () => go({ name: "pin" }) }, "⚙ 관리자")),
       h("div", { class: "subjects" }, SUBJECTS.map((s) => {
         const done = today.filter((x) => x.subject === s.id).length;
-        return h("button", { class: "subject", style: `--c:${colorOf(s.id)}`, onclick: () => (s.id === "HANJA" ? go({ name: "hanjaHub" }) : startQuiz(s.id)) },
+        return h("button", { class: "subject", style: `--c:${colorOf(s.id)}`, onclick: () => (HUB[s.id] ? go({ name: HUB[s.id] }) : startQuiz(s.id)) },
           h("span", { class: "mark", "aria-hidden": "true" }, s.mark),
           h("span", {}, h("div", { class: "name" }, s.title),
             h("div", { class: "lv" }, levelLabel(s, settings.level(s.id)) + (done ? ` · 오늘 ${done}회 ✔` : ""))));
@@ -153,11 +158,14 @@
         q.speak ? h("button", { class: "speak", "aria-label": "발음 듣기", onclick: () => speak(q.speak) }, "🔊") : null));
     }
     if (q.choices) {
-      body.push(h("div", { class: "choices" }, q.choices.map((c) => {
+      body.push(h("div", { class: "choices", role: "radiogroup" }, q.choices.map((c) => {
         let cls = "choice" + (isHanjaChoice ? " hanja" : "");
         if (s.answered !== null) cls += c === q.answer ? " right" : c === s.answered ? " wrong" : " dim";
-        return h("button", { class: cls, disabled: s.answered !== null, onclick: () => answer(c) }, tx(c));
+        else if (s.selected === c) cls += " selected";
+        return h("button", { class: cls, role: "radio", "aria-checked": String(s.selected === c), disabled: s.answered !== null,
+          onclick: () => { s.selected = c; render(); } }, tx(c));
       })));
+      if (s.answered === null) body.push(h("button", { class: "btn primary confirm", disabled: s.selected === null, onclick: () => { if (s.selected !== null) answer(s.selected); } }, "확인"));
     } else {
       body.push(...answerInput(s, q, ok));
     }
@@ -168,7 +176,7 @@
     }
     return [
       h("div", { class: "quiz-top", style: `--c:${colorOf(s.subject)}` },
-        h("button", { class: "icon-btn", "aria-label": "그만하기", onclick: () => go({ name: s.subject === "HANJA" ? "hanjaHub" : "home" }) }, "✕"),
+        h("button", { class: "icon-btn", "aria-label": "그만하기", onclick: () => go({ name: hubOf(s.subject) }) }, "✕"),
         h("div", { class: "title" }, `${subject.title} · ${levelLabel(subject, s.level)}`),
         h("div", { class: "count" }, `${s.index + 1} / ${s.questions.length}`)),
       h("div", { class: "bar", style: `--c:${colorOf(s.subject)}` }, h("i", { style: `width:${(done / s.questions.length) * 100}%` })),
@@ -225,19 +233,27 @@
 
   function Result() {
     const r = screen.r, subject = subjectById(r.subject);
+    if (r.kind === "talk") {
+      const min = Math.max(1, Math.round(r.durationSec / 60));
+      return [h("div", { class: "result" },
+        h("div", { class: "score" }, "👏"),
+        h("h2", { style: "font-size:30px" }, "영어로 대화를 마쳤어요!"),
+        h("div", { class: "muted" }, `주제: ${r.topic} · 약 ${min}분`),
+        h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: () => go({ name: "home" }) }, "처음으로")))];
+    }
     const rate = r.total ? Math.floor((r.correct * 100) / r.total) : 0;
     return [h("div", { class: "result" },
       h("div", { class: "score" }, `${r.correct}/${r.total}`),
       h("h2", { style: "font-size:30px" }, rate >= 90 ? "아주 잘했어요!" : rate >= 70 ? "잘했어요!" : "조금만 더 힘내요!"),
-      h("div", { class: "muted" }, `정답률 ${rate}%`),
+      h("div", { class: "muted" }, `${r.unit ? r.unit + " · " : ""}정답률 ${rate}%`),
       r.subject === "HANJA" ? h("div", { class: "pass " + (rate >= 70 ? "ok" : "no") },
         `${levelLabel(subject, r.level)} 합격 기준 70% · ${rate >= 70 ? "합격이에요!" : "아직 불합격이에요"}`) : null,
       r.change === 1 ? h("div", { class: "lvup" }, `레벨 업! 다음부터 ${levelLabel(subject, r.level + 1)} 문제가 나와요`) : null,
       r.change === -1 ? h("div", { class: "lvdown" }, `다음에는 ${levelLabel(subject, r.level - 1)} 문제로 다시 연습해 봐요`) : null,
       r.wrong.length ? h("div", { class: "wronglist" }, h("strong", {}, "틀린 문제 다시 보기"), h("ul", {}, r.wrong.map((w) => h("li", {}, w)))) : null,
       h("div", { class: "actions" },
-        h("button", { class: "btn", onclick: () => go({ name: r.subject === "HANJA" ? "hanjaHub" : "home" }) }, r.subject === "HANJA" ? "한자 메뉴로" : "처음으로"),
-        h("button", { class: "btn primary", onclick: () => startQuiz(r.subject) }, "한 번 더")))];
+        h("button", { class: "btn", onclick: () => go({ name: hubOf(r.subject) }) }, HUB[r.subject] ? `${subject.title} 메뉴로` : "처음으로"),
+        h("button", { class: "btn primary", onclick: () => startQuiz(r.subject, { unit: r.unitId }) }, "한 번 더")))];
   }
 
   // ---- 한자: 획순 데이터 ----
@@ -302,6 +318,82 @@
           h("strong", {}, "급수 문제 풀기"),
           h("span", {}, "훈음, 한자어 읽기, 반대자, 사자성어, 필순까지 시험처럼 풀어요"),
           h("span", { class: "hub-meta" }, `지금 ${levelLabel(subject, settings.level("HANJA"))} · 합격 기준 70%`))),
+    ];
+  }
+
+  // ---- 수학: 단원 고르기 ----
+  function MathHub() {
+    const subject = subjectById("MATH"), lv = settings.level("MATH");
+    const all = sessions.all().filter((x) => x.subject === "MATH" && x.level === lv);
+    const last = (name) => { const x = all.find((y) => y.unit === name); return x ? `지난번 ${x.correct}/${x.total}` : "아직 안 풀었어요"; };
+    return [
+      h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "처음으로", onclick: () => go({ name: "home" }) }, "←"),
+        h("h1", { style: "font-size:30px" }, `수학 · ${levelLabel(subject, lv)}`)),
+      h("p", { class: "muted", style: "margin:0" }, "풀고 싶은 단원을 골라요. 학년은 관리자 모드에서 정해요."),
+      h("h2", { class: "sec" }, "단원별 문제"),
+      h("div", { class: "units", style: `--c:${colorOf("MATH")}` }, MATH_UNITS[lv].map((u, i) =>
+        h("button", { class: "unit-card", onclick: () => startQuiz("MATH", { unit: u.id }) },
+          h("span", { class: "unit-no" }, `${i + 1}`),
+          h("span", { class: "grow" }, h("strong", {}, u.name), h("span", { class: "unit-meta" }, last(u.name)))))),
+      h("button", { class: "btn mix-btn", onclick: () => startQuiz("MATH", { unit: "mix" }) }, "모든 단원 섞어서 풀기"),
+      h("h2", { class: "sec" }, "도전! 심화 문제"),
+      h("div", { class: "hub" },
+        h("button", { class: "hub-card", style: `--c:var(--talk)`, onclick: () => startQuiz("MATH", { unit: "think" }) },
+          h("span", { class: "mark" }, "💡"), h("strong", {}, "사고력"),
+          h("span", {}, "규칙 찾기, 거꾸로 생각하기, 수 카드처럼 생각을 깊게 하는 문제"),
+          h("span", { class: "hub-meta" }, last("사고력"))),
+        h("button", { class: "hub-card", style: `--c:var(--korean)`, onclick: () => startQuiz("MATH", { unit: "apply" }) },
+          h("span", { class: "mark" }, "🧩"), h("strong", {}, "응용력"),
+          h("span", {}, "여러 단계를 거쳐 푸는 생활 속 문장제"),
+          h("span", { class: "hub-meta" }, last("응용력")))),
+    ];
+  }
+
+  // ---- 영어 회화: 오늘의 주제로 ChatGPT와 대화 ----
+  function todayTopic() {
+    const t = settings.talkTopic;
+    if (t && t.custom) return { en: t.custom, ko: "", phrases: [], set: true };
+    if (t && t.id) { const f = TALK_TOPICS.find((x) => x.id === t.id); if (f) return { ...f, set: true }; }
+    const day = Math.floor((Date.now() - new Date().getTimezoneOffset() * 6e4) / 864e5);
+    return { ...TALK_TOPICS[day % TALK_TOPICS.length], set: false };
+  }
+  function talkPrompt(t, lv) {
+    const level = ["very easy words and very short sentences (absolute beginner)", "easy words and short sentences (beginner)", "simple everyday English (elementary level)"][lv - 1] || "easy words and short sentences";
+    const phrases = t.phrases.length ? ` Try to use these expressions: ${t.phrases.map((p) => p[0]).join(" / ")}.` : "";
+    return `You are a friendly English conversation partner for a Korean elementary school student. Today's topic: "${t.en}"${t.ko ? ` (${t.ko})` : ""}. ` +
+      `Rules: use ${level}. Ask only one short question at a time and wait for my answer. If I make a mistake, gently show the correct sentence and keep going. ` +
+      `If I write in Korean or say I don't know, give a short hint in Korean and ask again in English. Praise me often.${phrases} ` +
+      `After about 10 turns, tell me 3 useful expressions I practiced with their Korean meanings, then say goodbye. Let's start! Greet me and ask the first question.`;
+  }
+  function copyText(text) { try { navigator.clipboard && navigator.clipboard.writeText(text).catch(() => {}); } catch { /* 복사 불가 */ } }
+  function Talk() {
+    const subject = subjectById("ENGLISH_TALK"), lv = settings.level("ENGLISH_TALK"), t = todayTopic();
+    const prompt = talkPrompt(t, lv), url = "https://chatgpt.com/?q=" + encodeURIComponent(prompt);
+    const started = screen.startedAt;
+    return [
+      h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "처음으로", onclick: () => go({ name: "home" }) }, "←"),
+        h("h1", { style: "font-size:30px" }, `영어 회화 · ${levelLabel(subject, lv)}`)),
+      h("div", { class: "talk-card", style: `--c:${colorOf("ENGLISH_TALK")}` },
+        h("span", { class: "qtag" }, t.set ? "오늘의 대화 주제" : "오늘의 추천 주제"),
+        h("h2", { lang: "en" }, t.en), t.ko ? h("div", { class: "muted" }, t.ko) : null,
+        t.phrases.length ? h("ul", { class: "phrases" }, t.phrases.map(([en, ko]) => h("li", {},
+          h("button", { class: "speak small-speak", "aria-label": "발음 듣기", onclick: () => speak(en.replace(/\.\.\./g, "")) }, "🔊"),
+          h("span", {}, h("b", { lang: "en" }, en), h("span", { class: "muted" }, ko))))) : null),
+      h("ol", { class: "talk-steps muted" },
+        h("li", {}, "아래 버튼을 누르면 ChatGPT가 열리고 대화가 시작돼요."),
+        h("li", {}, "ChatGPT 화면의 음성 버튼을 누르면 말로 대화할 수 있어요."),
+        h("li", {}, "다 끝나면 이 화면으로 돌아와 '대화를 마쳤어요'를 눌러요.")),
+      h("a", { class: "btn primary talk-go", href: url, target: "_blank", rel: "noopener noreferrer",
+        onclick: () => { copyText(prompt); if (!screen.startedAt) { screen.startedAt = Date.now(); setTimeout(render, 0); } } }, "ChatGPT로 대화 시작"),
+      started ? h("button", { class: "btn talk-done", onclick: () => {
+        const durationSec = Math.round((Date.now() - started) / 1000);
+        sessions.add({ id: Date.now(), subject: "ENGLISH_TALK", kind: "talk", level: lv, unit: t.en, total: 0, correct: 0, startedAt: started, durationSec, wrong: [] });
+        go({ name: "result", r: { subject: "ENGLISH_TALK", kind: "talk", topic: t.en, durationSec } });
+      } }, "대화를 마쳤어요") : null,
+      h("details", { class: "talk-help" }, h("summary", {}, "ChatGPT가 열리지 않으면"),
+        h("p", { class: "muted" }, "시작 문장을 복사해서 ChatGPT 앱에 붙여 넣어 주세요. 버튼을 누를 때 자동으로 복사돼요."),
+        h("textarea", { readonly: true, rows: "5", "aria-label": "시작 문장" }, prompt),
+        h("button", { class: "btn", onclick: (e) => { copyText(prompt); e.target.textContent = "복사했어요"; } }, "시작 문장 복사")),
     ];
   }
 
@@ -410,8 +502,16 @@
   }
 
   let adminMsg = "";
+  /** 관리자가 레벨을 정할 때 참고: 지금 레벨에서 최근 5번 정답률 */
+  function recentRate(id) {
+    const lv = settings.level(id), l = sessions.all().filter((x) => x.subject === id && x.level === lv && x.total).slice(0, 5);
+    if (!l.length) return "";
+    const t = l.reduce((a, x) => a + x.total, 0), c = l.reduce((a, x) => a + x.correct, 0);
+    return `지금 레벨 최근 ${l.length}회 정답률 ${Math.floor((c * 100) / t)}%`;
+  }
+
   function Admin() {
-    const tabs = ["학습 레벨", "학습 기록", "AI 설정", "일반"];
+    const tabs = ["학습 레벨", "학습 기록", "영어 회화", "AI 설정", "일반"];
     const tab = screen.tab;
     const setTab = (i) => { adminMsg = ""; screen.tab = i; render(); };
     const toggle = (on, onChange, label) => h("button", { class: "switch", role: "switch", "aria-checked": String(on), "aria-label": label, onclick: () => { onChange(!on); render(); } });
@@ -419,10 +519,10 @@
     if (tab === 0) {
       content = h("div", { class: "section" },
         h("div", { class: "setting" },
-          h("div", { class: "grow" }, h("strong", {}, "정답률에 따라 레벨 자동 조정"),
-            h("p", {}, "한 번 학습에서 90% 이상 맞히면 한 단계 올리고, 50% 미만이면 한 단계 내려요.")),
+          h("div", { class: "grow" }, h("strong", {}, "정답률에 따라 레벨 자동 조정 (기본 꺼짐)"),
+            h("p", {}, "꺼 두면 아래에서 관리자가 정한 레벨만 나와요. 켜면 90% 이상 맞힐 때 한 단계 올리고, 50% 미만이면 내려요.")),
           toggle(settings.autoLevel, (v) => (settings.autoLevel = v), "레벨 자동 조정")),
-        SUBJECTS.map((s) => h("div", { class: "subject-row" }, h("h3", {}, s.title),
+        SUBJECTS.map((s) => h("div", { class: "subject-row" }, h("h3", {}, s.title, h("span", { class: "recent" }, recentRate(s.id))),
           h("div", { class: "chips" }, s.levels.map((label, i) => h("button", { class: "chip", "aria-pressed": String(settings.level(s.id) === i + 1),
             onclick: () => { settings.setLevel(s.id, i + 1); render(); } }, label))))));
     } else if (tab === 1) {
@@ -433,16 +533,30 @@
         h("strong", {}, "최근 7일 과목별 정답률"),
         h("div", { class: "stats" }, SUBJECTS.map((s) => {
           const l = week.filter((x) => x.subject === s.id), t = l.reduce((a, x) => a + x.total, 0), c = l.reduce((a, x) => a + x.correct, 0);
-          return h("div", { class: "stat" }, h("span", { class: "muted" }, s.title), h("b", {}, t ? `${Math.floor((c * 100) / t)}%` : "-"), h("span", { class: "muted" }, `${l.length}회`));
+          const talkMin = Math.round(l.filter((x) => x.kind === "talk").reduce((a, x) => a + x.durationSec, 0) / 60);
+          return h("div", { class: "stat" }, h("span", { class: "muted" }, s.title), h("b", {}, s.id === "ENGLISH_TALK" ? `${talkMin}분` : t ? `${Math.floor((c * 100) / t)}%` : "-"), h("span", { class: "muted" }, `${l.length}회`));
         })),
         h("div", { class: "log" }, all.map((x) => {
           const s = subjectById(x.subject);
           return h("details", {}, h("summary", {},
-            h("span", { class: "grow" }, `${fmt.format(new Date(x.startedAt))}  ${s.title} ${levelLabel(s, x.level)}`),
-            h("b", {}, `${x.correct}/${x.total} · ${Math.floor(x.durationSec / 60)}분 ${x.durationSec % 60}초`)),
-            x.wrong.length ? h("ul", {}, x.wrong.map((w) => h("li", {}, w))) : h("p", { class: "muted" }, "모두 맞혔어요"));
+            h("span", { class: "grow" }, `${fmt.format(new Date(x.startedAt))}  ${s.title} ${levelLabel(s, x.level)}${x.unit ? " · " + x.unit : ""}`),
+            h("b", {}, `${x.kind === "talk" ? "대화" : `${x.correct}/${x.total}`} · ${Math.floor(x.durationSec / 60)}분 ${x.durationSec % 60}초`)),
+            x.kind === "talk" ? h("p", { class: "muted" }, "ChatGPT와 영어 대화") : x.wrong.length ? h("ul", {}, x.wrong.map((w) => h("li", {}, w))) : h("p", { class: "muted" }, "모두 맞혔어요"));
         })));
     } else if (tab === 2) {
+      const cur = settings.talkTopic;
+      content = h("div", { class: "section" },
+        h("strong", {}, "오늘의 대화 주제"),
+        h("p", { class: "muted", style: "margin:0" }, "학생이 영어 회화를 누르면 이 주제로 ChatGPT 대화가 시작돼요. 정하지 않으면 날마다 추천 주제가 바뀌어요. 회화 수준은 '학습 레벨' 탭의 영어 회화에서 정해요."),
+        h("div", { class: "chips" },
+          h("button", { class: "chip", "aria-pressed": String(!cur), onclick: () => { settings.talkTopic = null; render(); } }, "날마다 자동"),
+          TALK_TOPICS.map((t) => h("button", { class: "chip", "aria-pressed": String(!!cur && cur.id === t.id), onclick: () => { settings.talkTopic = { id: t.id }; render(); } }, t.ko))),
+        h("label", { for: "customTopic" }, h("strong", {}, "직접 쓰기 (영어 또는 한국어)")),
+        h("div", { class: "row" }, h("input", { type: "text", id: "customTopic", maxlength: "80", value: cur && cur.custom ? cur.custom : "", placeholder: "예: Talking about my favorite book" }),
+          h("button", { class: "btn", onclick: () => { const v = document.getElementById("customTopic").value.trim(); settings.talkTopic = v ? { custom: v } : null; adminMsg = v ? "주제를 저장했어요" : "자동 주제로 바꿨어요"; render(); } }, "저장")),
+        h("strong", {}, "ChatGPT 사용 안내"),
+        h("p", { class: "muted", style: "margin:0" }, "대화는 이 기기에서 로그인한 ChatGPT 계정으로 진행돼요. OpenAI 약관상 ChatGPT는 13세 이상(18세 미만은 보호자 동의)만 쓸 수 있으니 아이 나이에 맞는지 먼저 확인해 주세요. Android 앱에서는 학습 잠금 중에도 ChatGPT 앱만 열 수 있게 할 예정이에요."));
+    } else if (tab === 3) {
       content = h("div", { class: "section" },
         h("strong", {}, "AI 선생님 (3단계에서 연결 예정)"),
         h("p", { class: "muted", style: "margin:0" }, "AI는 아이의 수준 분석, 새 문제 만들기, 영어 회화 상대를 맡아요. API 키는 기기에 저장하지 않고 중계 서버에 보관해요."),
@@ -484,7 +598,7 @@
   }
 
   function render() {
-    const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin, hanjaHub: HanjaHub, learnList: LearnList, learnChar: LearnChar };
+    const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin, hanjaHub: HanjaHub, mathHub: MathHub, talk: Talk, learnList: LearnList, learnChar: LearnChar };
     app.replaceChildren(...views[screen.name]().flat().filter(Boolean));
   }
 
@@ -493,7 +607,12 @@
     if (screen.name !== "quiz") return;
     const s = screen.q, q = s.questions[s.index];
     if (s.answered !== null) { if (e.key === "Enter") next(); return; }
-    if (q.choices) { const i = Number(e.key) - 1; if (i >= 0 && i < q.choices.length) answer(q.choices[i]); return; }
+    if (q.choices) {
+      const i = Number(e.key) - 1;
+      if (i >= 0 && i < q.choices.length) { s.selected = q.choices[i]; render(); }
+      else if (e.key === "Enter" && s.selected !== null) answer(s.selected);
+      return;
+    }
     if (settings.penInput && typeof PenPad === "function") { if (e.key === "Enter" && s.penText) answer(s.penText); return; }
     if (/^\d$/.test(e.key) && s.input.length < 7) { s.input += e.key; render(); }
     else if (e.key === "." && q.input === "decimal" && s.input && !s.input.includes(".")) { s.input += "."; render(); }
