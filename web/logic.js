@@ -190,12 +190,31 @@ function hanjaQuestion(lv, type) {
   return q;
 }
 
-function wordQuestion(lv) {
-  const bank = bankAt(CONTENT.words, lv);
-  const [en, ko] = pick(bank);
+/** 영어 단어 문제. bank를 주면(관리자 단어장) 그 단어들로, 없으면 레벨별 기본 단어로 */
+function wordQuestion(lv, bank) {
+  const own = bank && bank.length ? bank : null;
+  const list = own || bankAt(CONTENT.words, lv);
+  const [en, ko] = pick(list);
+  // 단어장이 4개보다 적으면 기본 단어에서 오답 보기를 채운다
+  const extra = list.length >= 4 ? [] : CONTENT.words.flat();
+  const tag = own ? "내 단어장" : null;
   if (Math.random() < 0.6)
-    return choiceQuestion({ prompt: "이 단어의 뜻은?", answer: ko, pool: bank.map((x) => x[1]), big: en, speak: en, explain: `${en} = ${ko}` });
-  return choiceQuestion({ prompt: `'${ko}'${eulReul(ko)} 영어로 하면?`, answer: en, pool: bank.map((x) => x[0]), speak: en, explain: `${ko} = ${en}` });
+    return { ...choiceQuestion({ prompt: "이 단어의 뜻은?", answer: ko, pool: [...list, ...extra].map((x) => x[1]), big: en, speak: en, explain: `${en} = ${ko}` }), write: en, tag };
+  return { ...choiceQuestion({ prompt: `'${ko}'${eulReul(ko)} 영어로 하면?`, answer: en, pool: [...list, ...extra].map((x) => x[0]), speak: en, explain: `${ko} = ${en}` }), write: en, tag };
+}
+
+/** 관리자가 붙여 넣은 단어 목록을 [영어, 뜻] 쌍으로. 한 줄에 하나, 구분은 탭 · 쉼표 · - · : · = */
+function parseWordList(text) {
+  const out = [], bad = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = /^(.+?)\s*(?:\t|,|\s-\s|:|=|\s{2,})\s*(.+)$/.exec(line);
+    if (!m || !/[A-Za-z]/.test(m[1]) || /[A-Za-z]/.test(m[2]) && !/[가-힣]/.test(m[2])) { bad.push(line); continue; }
+    const en = m[1].trim(), ko = m[2].trim();
+    if (!out.some((w) => w[0].toLowerCase() === en.toLowerCase())) out.push([en, ko]);
+  }
+  return { words: out, bad };
 }
 
 function talkQuestion(lv) {
@@ -213,7 +232,7 @@ function oneQuestion(subjectId, lv, opts = {}) {
   switch (subjectId) {
     case "MATH": return opts.unit ? mathUnitQuestion(lv, opts.unit) : mathQuestion(lv);
     case "HANJA": return hanjaQuestion(lv);
-    case "ENGLISH_WORD": return wordQuestion(lv);
+    case "ENGLISH_WORD": return wordQuestion(lv, opts.book);
     case "ENGLISH_TALK": return talkQuestion(lv);
     default: return koreanQuestion(lv);
   }
@@ -243,4 +262,4 @@ function levelChange(rate, lv, maxLv) {
   return 0;
 }
 
-if (typeof module !== "undefined") module.exports = { MathGen, SUBJECTS, oneQuestion, makeSession, levelChange, normalize, hanjaQuestion, HanjaTypes, HANJA_LEVEL_NAMES };
+if (typeof module !== "undefined") module.exports = { parseWordList, wordQuestion, MathGen, SUBJECTS, oneQuestion, makeSession, levelChange, normalize, hanjaQuestion, HanjaTypes, HANJA_LEVEL_NAMES };

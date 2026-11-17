@@ -11,6 +11,8 @@ Android 앱(`android/`)과 같은 문제와 규칙을 브라우저에서 바로 
 - `content-data.js` 문제 데이터 (Android `content/` 폴더와 같은 내용)
 - `logic.js` 문제 생성, 채점, 레벨 자동 조정 규칙
 - `math-workbook.js` 수학 문제 (학년별 단원, 심화 사고력·응용력)
+- `word-writer.js` 영어 단어 손글씨 쓰기 (네 줄 공책 칸, 모양 비교로 확인)
+- `brush.js` 한자 쓰기 붓펜 효과 (펜 압력·쓰는 빠르기에 따라 굵기)
 - `talk-topics.js` 영어 회화 "오늘의 대화" 주제와 미리 볼 표현
 - `figures.js` 수학 그림 (시계, 수 모형, 도형, 분수, 각, 막대그래프, 넓이, 직육면체)
 - `pen.js` 펜으로 쓴 숫자 답 읽기 (기기 안에서 동작)
@@ -24,7 +26,7 @@ Android 앱(`android/`)과 같은 문제와 규칙을 브라우저에서 바로 
 - 획순 데이터 (모두 한국식 획순, 급수별로 `strokes/levelN.json`에 묶음, Arphic Public License `strokes/ARPHICPL.TXT`):
   - 8급~5급: [animCJK](https://github.com/parsimonhi/animCJK) 한국 한자(svgsKo) (`strokes/COPYING-animCJK.txt`)
   - 4급Ⅱ·4급: [hanjamaster-kaiti-strokes](https://github.com/heyday07/hanjamaster-kaiti-strokes). 일부 글자는 한국식 자형 대체본(alt)을 썼고, 硏鄕鑛姉鬪 5자는 데이터가 없어 획순 학습에서 빠집니다.
-- 쓰기 연습: [Hanzi Writer](https://hanziwriter.org) (MIT, `vendor/`).
+- 쓰기 연습: [Hanzi Writer](https://hanziwriter.org) (MIT, `vendor/`). 따라 쓰기·혼자 쓰기는 붓펜 효과(`brush.js`)로 그립니다: 스타일러스는 누르는 힘, 손가락·마우스는 쓰는 빠르기에 따라 굵기가 바뀌고 시작과 끝이 가늘어집니다.
 - 시험형 문제 데이터: `hanja-exam-data.js` (한자어, 반대자, 사자성어)
 
 ## 수학
@@ -34,6 +36,11 @@ Android 앱(`android/`)과 같은 문제와 규칙을 브라우저에서 바로 
 - 객관식은 보기를 고른 뒤 확인을 눌러야 채점됩니다.
 - 숫자 답은 펜(손글씨)으로 쓰거나 키패드로 입력합니다. 관리자 모드 > 일반, 또는 문제 화면 아래에서 바꿀 수 있습니다.
 - 손글씨 인식은 $P 점구름 인식기로 기기 안에서만 처리합니다 (서버 전송 없음). 소수점은 작은 점으로 씁니다.
+
+## 영어 단어
+- 기본 단어(레벨별)와 관리자가 만든 단어장으로 시험을 봅니다. 관리자 모드 > 영어 단어장에서 "영어 - 뜻"을 한 줄에 하나씩 붙여 넣어 만듭니다 (엑셀 두 칸 복사도 됨).
+- 문제를 푼 뒤 그 단어를 손으로 씁니다: 따라 쓰기(흐린 글자 위) / 혼자 쓰기 / 쓰기 없음 중 관리자가 고릅니다.
+- 쓰기 확인은 글자를 하나하나 읽는 인식이 아니라 정답 단어 모양과 겹치는 정도, 글자마다 위·아래로 나가는 획의 위치를 비교하는 방식입니다. 두 번 틀리면 건너뛸 수 있습니다.
 
 ## 영어 회화
 - 관리자가 '오늘의 대화 주제'를 고르거나 직접 씁니다 (정하지 않으면 날마다 추천 주제).

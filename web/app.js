@@ -19,6 +19,8 @@
     get realtime() { return store.get("realtime", false); }, set realtime(v) { store.set("realtime", v); },
     /** 영어 회화 주제: { id } 또는 { custom }. 없으면 날마다 바뀌는 추천 주제 */
     /** 연결할 ChatGPT 주소 (빈 값이면 새 채팅). 맞춤 GPT, 프로젝트, 특정 채팅 주소 */
+    /** 단어 시험 뒤 손으로 쓰기: "trace"(따라 쓰기) | "free"(혼자 쓰기) | "off" */
+    get wordWrite() { return store.get("wordWrite", "trace"); }, set wordWrite(v) { store.set("wordWrite", v); },
     get talkLink() { return store.get("talkLink", ""); }, set talkLink(v) { store.set("talkLink", v); },
     /** 학생이 이 말을 하면 ChatGPT가 대화를 마무리한다 */
     get talkEnd() { return store.get("talkEnd", "Goodbye, teacher!"); }, set talkEnd(v) { store.set("talkEnd", v); },
@@ -26,6 +28,13 @@
     get penInput() { return store.get("penInput", true); }, set penInput(v) { store.set("penInput", v); },
     level(id) { const s = subjectById(id); return Math.min(Math.max(store.get("level." + id, 1), 1), s.levels.length); },
     setLevel(id, lv) { store.set("level." + id, lv); },
+  };
+  /** 관리자가 만든 영어 단어장: [{ id, name, words: [[영어, 뜻], ...] }] */
+  const wordbooks = {
+    all() { return store.get("wordbooks", []); },
+    get(id) { return this.all().find((b) => b.id === id); },
+    save(book) { const l = this.all().filter((b) => b.id !== book.id); store.set("wordbooks", [...l, book]); },
+    remove(id) { store.set("wordbooks", this.all().filter((b) => b.id !== id)); },
   };
   const sessions = {
     all() { return store.get("sessions", []); },
@@ -61,7 +70,7 @@
     return el;
   }
   const colorOf = (id) => `var(${COLORS[id]})`;
-  const HUB = { HANJA: "hanjaHub", MATH: "mathHub", ENGLISH_TALK: "talk" };
+  const HUB = { HANJA: "hanjaHub", MATH: "mathHub", ENGLISH_WORD: "wordHub", ENGLISH_TALK: "talk" };
   const hubOf = (id) => HUB[id] || "home";
   /** 수학 글자 속 분수(3/4)를 위아래로 쌓아 보여 준다 */
   function mathText(text) {
@@ -77,12 +86,14 @@
   let screen = { name: "home" };
   function go(next) {
     if (writer) { try { writer.cancelQuiz(); } catch { /* 무시 */ } writer = null; }
+    if (brush) { brush.destroy(); brush = null; }
     screen = next; render(); window.scrollTo(0, 0);
   }
 
   function startQuiz(id, opts = {}) {
     const lv = settings.level(id);
-    go({ name: "quiz", q: { subject: id, level: lv, unit: opts.unit || null, questions: makeSession(id, lv, settings.perSession, opts), index: 0, correct: 0, answered: null, selected: null, input: "", pen: [], penText: "", wrong: [], startedAt: Date.now() } });
+    if (opts.bookId) { const b = wordbooks.get(opts.bookId); if (!b) return go({ name: "wordHub" }); opts = { ...opts, book: b.words, bookName: b.name }; }
+    go({ name: "quiz", q: { subject: id, level: lv, unit: opts.unit || null, bookId: opts.bookId || null, bookName: opts.bookName || null, questions: makeSession(id, lv, settings.perSession, opts), index: 0, correct: 0, answered: null, selected: null, input: "", pen: [], penText: "", wrong: [], startedAt: Date.now() } });
     const first = screen.q.questions[0];
     if (first.speak && first.big === first.speak) speak(first.speak);
   }
@@ -101,7 +112,7 @@
   function next() {
     const s = screen.q;
     if (s.index < s.questions.length - 1) {
-      s.index++; s.answered = null; s.selected = null; s.input = ""; s.pen = []; s.penText = ""; render();
+      s.index++; s.answered = null; s.selected = null; s.input = ""; s.wordPad = null; s.writeOk = false; s.writeTries = 0; s.pen = []; s.penText = ""; render();
       const q = s.questions[s.index];
       if (q.speak && q.big === q.speak) speak(q.speak);
       return;
@@ -113,10 +124,10 @@
       change = levelChange(total ? s.correct / total : 0, s.level, subject.levels.length);
       if (change) settings.setLevel(s.subject, s.level + change);
     }
-    const unitName = s.unit && typeof mathUnitName === "function" ? mathUnitName(s.level, s.unit) : null;
+    const unitName = s.bookName || (s.unit && typeof mathUnitName === "function" ? mathUnitName(s.level, s.unit) : null);
     sessions.add({ id: Date.now(), subject: s.subject, level: s.level, unit: unitName, total, correct: s.correct, startedAt: s.startedAt,
       durationSec: Math.round((Date.now() - s.startedAt) / 1000), wrong: s.wrong });
-    go({ name: "result", r: { subject: s.subject, level: s.level, unitId: s.unit, unit: unitName, total, correct: s.correct, wrong: s.wrong, change } });
+    go({ name: "result", r: { subject: s.subject, level: s.level, unitId: s.unit, bookId: s.bookId, unit: unitName, total, correct: s.correct, wrong: s.wrong, change } });
   }
 
   // ---- 화면 ----
@@ -146,6 +157,7 @@
     const isHanjaBig = s.subject === "HANJA" && q.big && [...q.big].length === 1;
     const isHanjaChoice = s.subject === "HANJA" && q.choices && q.choices.every((c) => [...c].length === 1);
     const done = s.index + (s.answered !== null ? 1 : 0);
+    const needWrite = !!q.write && settings.wordWrite !== "off" && typeof WordWriter === "function";
     const ok = s.answered !== null && normalize(s.answered) === normalize(q.answer);
 
     const isMath = s.subject === "MATH";
@@ -177,7 +189,18 @@
       body.push(h("div", { class: "feedback" },
         h("strong", { class: ok ? "ok" : "no" }, ok ? "정답이에요!" : ["아쉬워요. 정답은 ", tx(q.answer), q.unit && !q.choices ? q.unit : ""]),
         q.explain ? h("span", { class: "muted" }, tx(q.explain)) : null));
+      if (needWrite) {
+        // 같은 문제에서는 쓰는 칸을 다시 만들지 않는다 (다시 그려도 쓴 글씨가 남도록)
+        if (!s.wordPad) {
+          s.wordPad = h("div", { class: "write-step" },
+            h("strong", {}, "이제 손으로 써 봐요: ", h("span", { lang: "en", class: "write-word" }, q.write),
+              h("button", { class: "speak small-speak", "aria-label": "발음 듣기", onclick: () => speak(q.write) }, "🔊")),
+            WordWriter({ word: q.write, guide: settings.wordWrite !== "free", onResult: (okW, tries) => { s.writeOk = okW; s.writeTries = tries; render(); } }));
+        }
+        body.push(s.wordPad);
+      }
     }
+    const canNext = s.answered !== null && (!needWrite || s.writeOk || s.writeTries >= 2);
     return [
       h("div", { class: "quiz-top", style: `--c:${colorOf(s.subject)}` },
         h("button", { class: "icon-btn", "aria-label": "그만하기", onclick: () => go({ name: hubOf(s.subject) }) }, "✕"),
@@ -185,8 +208,8 @@
         h("div", { class: "count" }, `${s.index + 1} / ${s.questions.length}`)),
       h("div", { class: "bar", style: `--c:${colorOf(s.subject)}` }, h("i", { style: `width:${(done / s.questions.length) * 100}%` })),
       h("div", { class: "stage", style: `--c:${colorOf(s.subject)}` }, body),
-      s.answered !== null ? h("button", { class: "next", style: `--c:${colorOf(s.subject)}`, onclick: next },
-        s.index === s.questions.length - 1 ? "결과 보기" : "다음 문제") : null,
+      canNext ? h("button", { class: "next", style: `--c:${colorOf(s.subject)}`, onclick: next },
+        (needWrite && !s.writeOk ? "건너뛰고 " : "") + (s.index === s.questions.length - 1 ? "결과 보기" : "다음 문제")) : null,
     ];
   }
 
@@ -257,7 +280,7 @@
       r.wrong.length ? h("div", { class: "wronglist" }, h("strong", {}, "틀린 문제 다시 보기"), h("ul", {}, r.wrong.map((w) => h("li", {}, w)))) : null,
       h("div", { class: "actions" },
         h("button", { class: "btn", onclick: () => go({ name: hubOf(r.subject) }) }, HUB[r.subject] ? `${subject.title} 메뉴로` : "처음으로"),
-        h("button", { class: "btn primary", onclick: () => startQuiz(r.subject, { unit: r.unitId }) }, "한 번 더")))];
+        h("button", { class: "btn primary", onclick: () => startQuiz(r.subject, { unit: r.unitId, bookId: r.bookId }) }, "한 번 더")))];
   }
 
   // ---- 한자: 획순 데이터 ----
@@ -322,6 +345,27 @@
           h("strong", {}, "급수 문제 풀기"),
           h("span", {}, "훈음, 한자어 읽기, 반대자, 사자성어, 필순까지 시험처럼 풀어요"),
           h("span", { class: "hub-meta" }, `지금 ${levelLabel(subject, settings.level("HANJA"))} · 합격 기준 70%`))),
+    ];
+  }
+
+  // ---- 영어 단어: 기본 단어 / 내 단어장 ----
+  function WordHub() {
+    const subject = subjectById("ENGLISH_WORD"), lv = settings.level("ENGLISH_WORD"), books = wordbooks.all();
+    const writeLabel = { trace: "답을 맞힌 뒤 따라 쓰기", free: "답을 맞힌 뒤 혼자 쓰기", off: "쓰기 없음" }[settings.wordWrite];
+    return [
+      h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "처음으로", onclick: () => go({ name: "home" }) }, "←"),
+        h("h1", { style: "font-size:30px" }, "영어 단어")),
+      h("p", { class: "muted", style: "margin:0" }, `${writeLabel} · 단어장은 관리자 모드에서 만들어요.`),
+      h("div", { class: "hub" },
+        h("button", { class: "hub-card", style: `--c:${colorOf("ENGLISH_WORD")}`, onclick: () => startQuiz("ENGLISH_WORD") },
+          h("span", { class: "mark" }, "ABC"), h("strong", {}, "기본 단어"),
+          h("span", {}, "레벨에 맞는 단어로 시험 봐요"),
+          h("span", { class: "hub-meta" }, `지금 ${levelLabel(subject, lv)}`)),
+        books.map((b) => h("button", { class: "hub-card book", onclick: () => startQuiz("ENGLISH_WORD", { bookId: b.id }) },
+          h("span", { class: "mark" }, "📒"), h("strong", {}, b.name),
+          h("span", {}, b.words.slice(0, 4).map((w) => w[0]).join(", ") + (b.words.length > 4 ? " …" : "")),
+          h("span", { class: "hub-meta" }, `${b.words.length}개 단어`)))),
+      books.length ? null : h("p", { class: "note" }, "아직 만든 단어장이 없어요. 관리자 모드 > 영어 단어장에서 단어를 붙여 넣어 만들 수 있어요."),
     ];
   }
 
@@ -436,7 +480,7 @@
     ];
   }
 
-  let writer = null;
+  let writer = null, brush = null;
   function LearnChar() {
     const { lv, index } = screen;
     const list = CONTENT.hanja[lv - 1];
@@ -459,19 +503,28 @@
         highlightColor: color("--hanja"), drawingColor: color("--hanja"), drawingWidth: 22,
         charDataLoader: (c, ok, err) => loadStrokes(c).then(ok).catch(err),
       });
+      if (typeof attachBrush === "function") brush = attachBrush(stage);
+    }
+    /** 붓펜으로 쓸 때: Hanzi Writer가 그리는 선은 감추고, 맞은 획은 흐린 색으로만 보여 준다 */
+    function brushMode(on) {
+      if (!writer) return;
+      writer.updateColor("drawingColor", on ? "rgba(0,0,0,0)" : color("--hanja"));
+      writer.updateColor("strokeColor", on ? color("--fig-line") : color("--ink"));
+      if (brush) brush.clear();
     }
     function quiz(withOutline) {
       if (!writer) return;
       let mistakes = 0;
       writer.cancelQuiz();
+      brushMode(!!brush);
       writer.hideCharacter();
       withOutline ? writer.showOutline() : writer.hideOutline();
       status.textContent = withOutline ? "회색 글자 위에 1번 획부터 순서대로 써 보세요." : "보지 않고 1번 획부터 순서대로 써 보세요.";
       writer.quiz({
         showHintAfterMisses: withOutline ? 2 : 3,
         leniency: 1.2,
-        onMistake: () => { mistakes++; status.textContent = "순서나 방향이 달라요. 다시 써 볼까요?"; },
-        onCorrectStroke: (d) => { status.textContent = `${d.strokeNum + 1}번째 획 좋아요! (${d.strokeNum + 1}/${count})`; },
+        onMistake: () => { if (brush) brush.discard(); mistakes++; status.textContent = "순서나 방향이 달라요. 다시 써 볼까요?"; },
+        onCorrectStroke: (d) => { if (brush) brush.commit(); status.textContent = `${d.strokeNum + 1}번째 획 좋아요! (${d.strokeNum + 1}/${count})`; },
         onComplete: (d) => {
           const miss = d.totalMistakes;
           status.textContent = miss === 0 ? "완벽해요! 한 번도 틀리지 않았어요." : `다 썼어요! 틀린 횟수 ${miss}번`;
@@ -492,7 +545,7 @@
           count ? stage : h("div", { class: "writer nodata", lang: "zh-Hant" }, ch),
           status,
           count ? h("div", { class: "actions" },
-            h("button", { class: "btn", onclick: () => { if (!writer) return; writer.cancelQuiz(); writer.showCharacter(); writer.showOutline(); status.textContent = "쓰는 순서를 잘 봐요."; writer.animateCharacter({ onComplete: () => (status.textContent = "이제 따라 써 볼까요?") }); } }, "획순 보기"),
+            h("button", { class: "btn", onclick: () => { if (!writer) return; writer.cancelQuiz(); brushMode(false); writer.showCharacter(); writer.showOutline(); status.textContent = "쓰는 순서를 잘 봐요."; writer.animateCharacter({ onComplete: () => (status.textContent = "이제 따라 써 볼까요?") }); } }, "획순 보기"),
             h("button", { class: "btn", onclick: () => quiz(true) }, "따라 쓰기"),
             h("button", { class: "btn primary", onclick: () => quiz(false) }, "혼자 쓰기"))
             : h("p", { class: "muted" }, "이 한자는 아직 획순 데이터가 없어요.")),
@@ -537,7 +590,7 @@
   }
 
   function Admin() {
-    const tabs = ["학습 레벨", "학습 기록", "영어 회화", "AI 설정", "일반"];
+    const tabs = ["학습 레벨", "학습 기록", "영어 단어장", "영어 회화", "AI 설정", "일반"];
     const tab = screen.tab;
     const setTab = (i) => { adminMsg = ""; screen.tab = i; render(); };
     const toggle = (on, onChange, label) => h("button", { class: "switch", role: "switch", "aria-checked": String(on), "aria-label": label, onclick: () => { onChange(!on); render(); } });
@@ -570,6 +623,39 @@
             x.kind === "talk" ? h("p", { class: "muted" }, "ChatGPT와 영어 대화") : x.wrong.length ? h("ul", {}, x.wrong.map((w) => h("li", {}, w))) : h("p", { class: "muted" }, "모두 맞혔어요"));
         })));
     } else if (tab === 2) {
+      const books = wordbooks.all(), edit = screen.editBook ? wordbooks.get(screen.editBook) : null;
+      content = h("div", { class: "section" },
+        h("strong", {}, "단어 시험 뒤 손으로 쓰기"),
+        h("div", { class: "chips" }, [["trace", "따라 쓰기 (흐린 글자 위에)"], ["free", "혼자 쓰기 (보지 않고)"], ["off", "쓰기 없음"]].map(([v, label]) =>
+          h("button", { class: "chip", "aria-pressed": String(settings.wordWrite === v), onclick: () => { settings.wordWrite = v; render(); } }, label))),
+        h("p", { class: "muted", style: "margin:0" }, "문제를 푼 뒤 그 영어 단어를 공책 칸에 쓰게 해요. 쓴 모양이 단어와 비슷하면 통과하고, 두 번 틀리면 건너뛸 수 있어요."),
+        h("strong", {}, edit ? `'${edit.name}' 고치기` : "새 단어장 만들기"),
+        h("label", { for: "bookName" }, "단어장 이름"),
+        h("input", { type: "text", id: "bookName", maxlength: "30", value: edit ? edit.name : "", placeholder: "예: 3단원 단어, 이번 주 단어" }),
+        h("label", { for: "bookWords" }, "단어 (한 줄에 하나: 영어 - 뜻)"),
+        h("textarea", { id: "bookWords", rows: "8", placeholder: "apple - 사과\nbanana - 바나나\ngo to school - 학교에 가다" }, edit ? edit.words.map((w) => `${w[0]} - ${w[1]}`).join("\n") : ""),
+        h("p", { class: "muted", style: "margin:0" }, "영어와 뜻 사이는 - , : = 또는 탭으로 나눠요. 엑셀에서 두 칸을 복사해 붙여 넣어도 돼요."),
+        h("div", { class: "row" },
+          h("button", { class: "btn primary", onclick: () => {
+            const name = document.getElementById("bookName").value.trim();
+            const { words, bad } = parseWordList(document.getElementById("bookWords").value);
+            if (!name) { adminMsg = "단어장 이름을 써 주세요"; return render(); }
+            if (words.length < 2) { adminMsg = "단어를 2개 이상 넣어 주세요"; return render(); }
+            wordbooks.save({ id: edit ? edit.id : "b" + Date.now().toString(36), name, words });
+            screen.editBook = null;
+            adminMsg = `'${name}' 저장: ${words.length}개 단어` + (bad.length ? ` · 읽지 못한 줄 ${bad.length}개: ${bad.slice(0, 3).join(" / ")}` : "");
+            render();
+          } }, edit ? "고친 내용 저장" : "단어장 저장"),
+          edit ? h("button", { class: "btn", onclick: () => { screen.editBook = null; render(); } }, "취소") : null),
+        h("strong", {}, `만든 단어장 (${books.length})`),
+        books.length ? h("div", { class: "book-list" }, books.map((b) => h("div", { class: "book-row" },
+          h("span", { class: "grow" }, h("b", {}, b.name), h("span", { class: "muted" }, ` · ${b.words.length}개`)),
+          h("button", { class: "btn small-btn", onclick: () => { screen.editBook = b.id; adminMsg = ""; render(); } }, "고치기"),
+          h("button", { class: "btn small-btn danger", onclick: () => {
+            if (screen.confirmDel !== b.id) { screen.confirmDel = b.id; adminMsg = `'${b.name}'을(를) 지우려면 한 번 더 눌러요`; return render(); }
+            wordbooks.remove(b.id); screen.confirmDel = null; adminMsg = `'${b.name}'을(를) 지웠어요`; render();
+          } }, screen.confirmDel === b.id ? "정말 지우기" : "지우기")))) : h("p", { class: "muted", style: "margin:0" }, "아직 없어요."));
+    } else if (tab === 3) {
       const cur = settings.talkTopic;
       content = h("div", { class: "section" },
         h("strong", {}, "오늘의 대화 주제"),
@@ -597,7 +683,7 @@
           h("button", { class: "btn", onclick: (e) => { copyText(talkRules(1, settings.talkEnd, false)); e.target.textContent = "복사했어요"; } }, "지침 복사")),
         h("strong", {}, "ChatGPT 사용 안내"),
         h("p", { class: "muted", style: "margin:0" }, "대화는 이 기기에서 로그인한 ChatGPT 계정으로 진행돼요. OpenAI 약관상 ChatGPT는 13세 이상(18세 미만은 보호자 동의)만 쓸 수 있으니 아이 나이에 맞는지 먼저 확인해 주세요. Android 앱에서는 학습 잠금 중에도 ChatGPT 앱만 열 수 있게 할 예정이에요."));
-    } else if (tab === 3) {
+    } else if (tab === 4) {
       content = h("div", { class: "section" },
         h("strong", {}, "AI 선생님 (3단계에서 연결 예정)"),
         h("p", { class: "muted", style: "margin:0" }, "AI는 아이의 수준 분석, 새 문제 만들기, 영어 회화 상대를 맡아요. API 키는 기기에 저장하지 않고 중계 서버에 보관해요."),
@@ -639,7 +725,7 @@
   }
 
   function render() {
-    const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin, hanjaHub: HanjaHub, mathHub: MathHub, talk: Talk, learnList: LearnList, learnChar: LearnChar };
+    const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin, hanjaHub: HanjaHub, mathHub: MathHub, wordHub: WordHub, talk: Talk, learnList: LearnList, learnChar: LearnChar };
     app.replaceChildren(...views[screen.name]().flat().filter(Boolean));
   }
 
@@ -647,7 +733,11 @@
   document.addEventListener("keydown", (e) => {
     if (screen.name !== "quiz") return;
     const s = screen.q, q = s.questions[s.index];
-    if (s.answered !== null) { if (e.key === "Enter") next(); return; }
+    if (s.answered !== null) {
+      const needWrite = !!q.write && settings.wordWrite !== "off" && typeof WordWriter === "function";
+      if (e.key === "Enter" && (!needWrite || s.writeOk || s.writeTries >= 2)) next();
+      return;
+    }
     if (q.choices) {
       const i = Number(e.key) - 1;
       if (i >= 0 && i < q.choices.length) { s.selected = q.choices[i]; render(); }

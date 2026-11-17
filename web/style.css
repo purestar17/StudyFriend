@@ -274,3 +274,24 @@ input[type="text"], input[type="password"], input[type="url"] {
 .talk-help textarea { width: 100%; font: inherit; font-size: 14px; border-radius: 12px; border: 2px solid var(--line); background: var(--panel); color: var(--ink); padding: 10px; }
 .end-phrase { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px; border-radius: 16px; background: color-mix(in srgb, var(--talk) 12%, var(--panel)); }
 .end-phrase b { font-size: 22px; }
+
+/* 영어 단어 쓰기 */
+.write-step { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
+.write-step > strong { display: flex; align-items: center; gap: 10px; font-size: 20px; flex-wrap: wrap; justify-content: center; }
+.write-word { font-family: "Andika", var(--font-body); font-size: 30px; }
+.wordpad { display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(640px, 100%); }
+.wordpad canvas { width: 100%; height: 180px; background: var(--panel); border: 3px dashed var(--c, var(--line)); border-radius: 18px; touch-action: none; cursor: crosshair; display: block; }
+.wordpad.ok canvas { border-style: solid; border-color: var(--good); }
+.wordpad-status { font-size: 17px; }
+.wordpad.ok .wordpad-status { color: var(--good); font-weight: 700; }
+.hub-card.book { background: var(--panel); color: var(--ink); border: 3px solid var(--word); }
+.hub-card.book .mark { font-size: 48px; }
+.book-list { display: grid; gap: 8px; }
+.book-row { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); flex-wrap: wrap; }
+.btn.small-btn { height: 42px; padding: 0 16px; font-size: 16px; }
+.btn.danger { border-color: var(--bad); color: var(--bad); }
+textarea#bookWords { width: 100%; font: inherit; font-size: 16px; border-radius: 12px; border: 2px solid var(--line); background: var(--panel); color: var(--ink); padding: 10px; }
+
+/* 붓펜 */
+.writer { position: relative; }
+.brush-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

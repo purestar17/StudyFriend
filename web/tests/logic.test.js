@@ -74,6 +74,17 @@ for (let lv = 1; lv <= 6; lv++) {
   const ses = makeSession("MATH", lv, 10, { unit: MATH_UNITS[lv][0].id });
   if (ses.length < 5) throw new Error(`단원 문제 수가 너무 적음 ${lv}학년 ${ses.length}`);
 }
+// 관리자 단어장
+{
+  const { words, bad } = L.parseWordList("apple - 사과\nbanana,바나나\nice cream\t아이스크림\ngo to school: 학교에 가다\nhello\nApple = 사과");
+  if (words.length !== 4 || bad.length !== 1 || words[2][0] !== "ice cream") throw new Error("단어장 읽기 " + JSON.stringify(words));
+  for (const book of [words, words.slice(0, 2)]) for (let i = 0; i < 300; i++) {
+    const q = L.wordQuestion(1, book); n++;
+    if (new Set(q.choices).size !== 4 || !q.choices.includes(q.answer) || !book.some((w) => w[0] === q.write)) fail("단어장 문제", q);
+  }
+  const ses = makeSession("ENGLISH_WORD", 1, 10, { book: words });
+  if (!ses.every((q) => words.some((w) => w[0] === q.write))) throw new Error("단어장 세션");
+}
 for (const t of TALK_TOPICS) if (!t.id || !t.en || !t.ko || t.phrases.length < 3) throw new Error("회화 주제 " + t.id);
 
 // 모든 급수 한자에 획순 데이터가 있어야 한다
