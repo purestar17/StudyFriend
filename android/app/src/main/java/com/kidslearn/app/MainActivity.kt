@@ -375,6 +375,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val HOST = "appassets.androidplatform.net"
-        const val BuildConfigVersion = "0.3.6"
+        const val BuildConfigVersion = "0.4.0"
     }
 }

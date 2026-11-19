@@ -542,3 +542,69 @@ select { width: auto; padding-right: 8px; }
 .modal input[type="password"] { width: 100%; font-size: 20px; letter-spacing: 4px; text-align: center; }
 .modal .bad { color: var(--bad); min-height: 1em; }
 .modal .bad:empty { display: none; }
+
+/* 영어 회화: 주제 고르기 */
+.talk-pick { display: grid; gap: 12px; }
+.talk-pick h2 { margin: 0; font-size: 22px; }
+.topic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.topic { display: grid; gap: 4px; text-align: left; padding: 14px 16px; border-radius: 16px; border: 2px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; cursor: pointer; }
+.topic b { font-size: 18px; }
+.topic span { color: var(--muted); font-size: 14px; }
+.topic[aria-pressed="true"] { border-color: var(--talk); background: color-mix(in srgb, var(--talk) 12%, var(--panel)); }
+.topic:disabled { opacity: .45; cursor: default; }
+.my-topic input { flex: 1; width: auto; }
+
+/* 한자 급수별 학습 */
+.review-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; border-radius: 16px; background: color-mix(in srgb, var(--hanja) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--hanja) 35%, var(--line)); }
+.rv-chars { font-family: var(--font-hanja); font-size: 22px; letter-spacing: 2px; margin-top: 4px; }
+.group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.group-card { display: grid; gap: 6px; text-align: left; padding: 14px; border-radius: 16px; border: 2px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; cursor: pointer; }
+.group-card .gname { font-weight: 700; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.group-card .today { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--hanja); color: #fff; }
+.group-card .gchars { font-family: var(--font-hanja); font-size: 26px; letter-spacing: 1px; word-break: break-all; }
+.group-card .gstate { font-size: 13px; color: var(--muted); }
+.group-card.next { border-color: var(--hanja); }
+.group-card.done { background: color-mix(in srgb, var(--good) 8%, var(--panel)); }
+.group-card.done .gstate { color: var(--good); font-weight: 700; }
+.lesson-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.lesson-steps::-webkit-scrollbar { display: none; }
+.lesson-steps li { flex: none; }
+.lesson-steps button { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 12px 0 6px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
+.lesson-steps .n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--line); color: var(--ink); font-size: 13px; font-weight: 700; }
+.lesson-steps .cur button { border-color: var(--hanja); color: var(--ink); font-weight: 700; }
+.lesson-steps .cur .n { background: var(--hanja); color: #fff; }
+.lesson-steps .done .n { background: var(--good); color: #fff; }
+.lesson-body { display: grid; gap: 14px; justify-items: center; }
+.lesson-tip { margin: 0; color: var(--muted); text-align: center; }
+.lesson-chars { font-family: var(--font-hanja); font-size: 44px; letter-spacing: 6px; text-align: center; }
+.lesson-next { justify-content: center; }
+.flash { display: flex; align-items: center; gap: 12px; width: min(560px, 100%); }
+.flash-card { flex: 1; display: grid; gap: 6px; justify-items: center; padding: 22px 16px; border-radius: 22px; border: 2px solid color-mix(in srgb, var(--hanja) 40%, var(--line)); background: var(--panel); }
+.flash-char { font-family: var(--font-hanja); font-size: 120px; line-height: 1.1; }
+.flash-mean { font-size: 28px; font-weight: 800; }
+.flash-words { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; text-align: center; color: var(--muted); }
+.flash-words .ew, .learn-right .ew { font-family: var(--font-hanja); color: var(--ink); font-size: 1.2em; }
+.card-dots { display: flex; gap: 6px; }
+.card-dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+.card-dots i.seen { background: color-mix(in srgb, var(--hanja) 45%, var(--line)); }
+.card-dots i.on { background: var(--hanja); }
+.match-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; width: min(760px, 100%); }
+.tile { min-height: 76px; padding: 8px; border-radius: 16px; border: 2px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; font-size: 18px; font-weight: 700; cursor: pointer; }
+.tile.hanja { font-family: var(--font-hanja); font-size: 40px; font-weight: 400; }
+.tile.sel { border-color: var(--hanja); background: color-mix(in srgb, var(--hanja) 12%, var(--panel)); }
+.tile.got { border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, var(--panel)); opacity: .55; cursor: default; }
+.tile.bad { border-color: var(--bad); animation: tile-shake .3s; }
+@keyframes tile-shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+@media (prefers-reduced-motion: reduce) { .tile.bad { animation: none; } }
+.write-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.write-list .chip { font-family: var(--font-hanja); font-size: 20px; }
+.write-list .chip.ok { border-color: var(--good); }
+.practice-done { display: grid; gap: 10px; justify-items: center; text-align: center; }
+.practice-done .score { font-size: 56px; font-weight: 800; }
+.hanja-progress { display: grid; gap: 6px; }
+.hp-row { display: grid; grid-template-columns: 52px 1fr 72px; gap: 10px; align-items: center; }
+.hp-bar { height: 10px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.hp-bar i { display: block; height: 100%; background: var(--hanja); }
+.weak { font-family: var(--font-hanja); font-size: 18px; }
+.big.hanja-w { font-family: var(--font-hanja); }
+.learn-left .actions .btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }

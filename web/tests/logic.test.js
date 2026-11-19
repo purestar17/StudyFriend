@@ -197,4 +197,39 @@ if (Pen.recognize(many, false) !== "375") throw new Error("펜 정수 " + Pen.re
   pr = SC.taskProgress(sched, [], since, { all: true, subjects: new Set() });
   eq(pr.complete, true, "하루 면제");
 }
+// ---- 한자 급수별 학습 ----
+{
+  const HS = require(W + "hanja-study.js");
+  const { HANJA_RADICALS, RADICAL_NAMES } = require(W + "hanja-radicals.js");
+  const fail = (m) => { throw new Error("한자 학습 " + m); };
+  let r = 0.3; const rand = () => (r = (r * 9301 + 49297) % 233280 / 233280);
+  for (let lv = 1; lv <= 6; lv++) {
+    const list = CONTENT.hanja[lv - 1], words = HANJA_EXAM.words.slice(0, lv).flat();
+    for (const size of [5, 6, 8, 10]) {
+      const groups = HS.chunks(list, size);
+      if (groups.flat().length !== list.length) fail("묶음 개수");
+      for (const g of groups) {
+        const qs = [...HS.wordQs(g, words, 4, rand), ...HS.blankQs(g, words, list, 4, rand), ...HS.radicalQs(g, list, HANJA_RADICALS, RADICAL_NAMES, 4, rand), ...HS.testQs(g, [], list, rand)];
+        for (const q of qs) {
+          if (q.choices.length !== 4 || new Set(q.choices).size !== 4 || !q.choices.includes(q.answer)) fail(`보기 ${JSON.stringify(q)}`);
+          if (q.sentence && !q.sentence.includes("□")) fail("빈칸 문장 " + q.sentence);
+          n++;
+        }
+        // 부수 문제: 오답 보기에는 같은 부수가 없어야
+        for (const q of HS.radicalQs(g, list, HANJA_RADICALS, RADICAL_NAMES, 4, rand))
+          for (const c of q.choices) if (c !== q.answer && HANJA_RADICALS[c] === HANJA_RADICALS[q.answer]) fail("부수 오답 " + c);
+        if (HS.matchTiles(g, rand).length !== g.length * 2) fail("짝 카드");
+      }
+    }
+  }
+  // 복습 상자
+  const now = Date.UTC(2026, 10, 19), DAY = 864e5;
+  let rec = HS.review(undefined, true, now);
+  if (rec.box !== 1 || rec.due !== now + DAY) fail("처음 맞힘");
+  rec = HS.review(rec, true, now); if (rec.box !== 2 || rec.due !== now + 2 * DAY) fail("두 번 맞힘");
+  rec = HS.review(rec, false, now); if (rec.box !== 1 || rec.wrong !== 1) fail("틀림");
+  const prog = { 一: { box: 2, due: now - 1 }, 二: { box: 1, due: now + DAY }, 三: { box: 1, due: now - 5 } };
+  if (HS.dueChars(prog, now).join("") !== "三一") fail("복습 순서");
+  if (HS.groupState([["一"], ["二"]], {}) !== "new" || HS.groupState([["一"], ["二"]], prog) !== "learning" || HS.groupState([["一"]], prog) !== "done") fail("묶음 상태");
+}
 console.log(`통과: 문제 ${n}개 검사, 펜 인식 견본 ${penAll - penMiss.length}/${penAll}`);
