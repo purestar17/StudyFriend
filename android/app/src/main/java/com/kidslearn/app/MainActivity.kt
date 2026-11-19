@@ -253,6 +253,7 @@ class MainActivity : ComponentActivity() {
             .put("pinned", getSystemService(ActivityManager::class.java).lockTaskModeState == ActivityManager.LOCK_TASK_MODE_PINNED)
             .put("shouldLock", Lock.shouldLockNow(this@MainActivity))
             .put("activeKey", Lock.activeKey(this@MainActivity) ?: JSONObject.NULL)
+            .put("released", Lock.activeKey(this@MainActivity)?.let { it in Lock.doneKeys(this@MainActivity) } ?: false)
             .put("exactAlarm", Lock.canExactAlarm(this@MainActivity))
             .put("chatgpt", Lock.chatGptInstalled(this@MainActivity))
             .toString()
@@ -281,6 +282,15 @@ class MainActivity : ComponentActivity() {
         fun adminRelease(): Boolean {
             val key = Lock.activeKey(this@MainActivity) ?: return false
             Lock.markDone(this@MainActivity, key)
+            runOnUiThread { evaluateLock() }
+            return true
+        }
+
+        /** 풀어 둔 이번 학습 시간을 다시 잠근다 */
+        @JavascriptInterface
+        fun adminRelock(): Boolean {
+            val key = Lock.activeKey(this@MainActivity) ?: return false
+            Lock.unmarkDone(this@MainActivity, key)
             runOnUiThread { evaluateLock() }
             return true
         }
@@ -365,6 +375,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val HOST = "appassets.androidplatform.net"
-        const val BuildConfigVersion = "0.3.5"
+        const val BuildConfigVersion = "0.3.6"
     }
 }

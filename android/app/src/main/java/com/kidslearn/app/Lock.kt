@@ -40,6 +40,11 @@ object Lock {
         prefs(ctx).edit().putStringSet("done", keep).apply()
     }
 
+    /** 관리자가 '다시 잠그기'를 누르면 이 시간 칸을 끝내지 않은 것으로 되돌린다 */
+    fun unmarkDone(ctx: Context, key: String) {
+        prefs(ctx).edit().putStringSet("done", doneKeys(ctx) - key).apply()
+    }
+
     fun activeKey(ctx: Context): String? = schedule(ctx).activeKey(LocalDateTime.now())
 
     fun shouldLockNow(ctx: Context): Boolean = shouldLock(schedule(ctx), LocalDateTime.now(), doneKeys(ctx))

@@ -1200,6 +1200,15 @@
         h("div", {}, st.chatgpt ? "✔ 잠금 중에도 ChatGPT 앱은 열 수 있어요." : "△ ChatGPT 앱이 없어요. 영어 회화를 과제로 넣으려면 설치해 주세요."),
         st.shouldLock ? h("div", { class: "row" }, h("strong", { class: "grow" }, st.locked ? "🔒 지금 잠겨 있어요" : "지금은 학습 시간이에요"),
           h("button", { class: "btn primary", onclick: () => { native.adminRelease(); adminMsg = "이번 학습 시간의 잠금을 풀었어요"; render(); } }, "지금 잠금 풀기")) : null,
+        !st.shouldLock && st.released && native.adminRelock ? h("div", { class: "row" }, h("strong", { class: "grow" }, "🔓 이번 학습 시간은 잠금이 풀려 있어요"),
+          h("button", { class: "btn primary", onclick: () => {
+            const now = studyNow();
+            native.adminRelock();
+            // 다시 잠근 뒤에는 이미 끝낸 과제로 바로 풀리지 않게 이번 시간 칸은 다시 알리지 않는다
+            if (now) reportedKey = now.slot.key;
+            adminMsg = now && now.complete ? "다시 잠갔어요. 오늘 과제를 이미 다 해서, 앱을 다시 켜면 풀릴 수 있어요" : "이번 학습 시간을 다시 잠갔어요";
+            render();
+          } }, "다시 잠그기")) : null,
         st.deviceOwner ? null : h("details", { class: "talk-help" }, h("summary", {}, "기기 관리자로 설정하는 방법 (컴퓨터 필요, 한 번만)"),
           h("ol", { class: "muted" },
             h("li", {}, "태블릿 설정 → 계정에서 모든 계정(구글 계정 포함)을 잠시 지워요. 계정이 있으면 설정이 안 돼요."),
