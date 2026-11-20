@@ -106,10 +106,10 @@ object Lock {
             .setContentText("눌러서 오늘의 과제를 시작해요")
             .setCategory(android.app.Notification.CATEGORY_REMINDER)
             .setContentIntent(pi)
-            .setFullScreenIntent(pi, true)
             .setAutoCancel(true)
-            .build()
-        try { nm.notify(1, n) } catch (_: SecurityException) { }
+        // 화면이 켜져 있을 때만 바로 띄운다 (꺼진 화면을 깨우지 않게)
+        if (ctx.getSystemService(android.os.PowerManager::class.java).isInteractive) n.setFullScreenIntent(pi, true)
+        try { nm.notify(1, n.build()) } catch (_: SecurityException) { }
     }
 
     // ---- 기기 관리자 ----

@@ -164,8 +164,9 @@ class MainActivity : ComponentActivity() {
     private fun evaluateLock() {
         val lock = Lock.shouldLockNow(this)
         if (Build.VERSION.SDK_INT >= 27) {
+            // 학습 시간에 꺼진 화면을 켜지는 않는다. 아이가 화면을 켜면 잠금 화면 위로 바로 공부 친구가 보인다
             setShowWhenLocked(lock)
-            setTurnScreenOn(lock)
+            setTurnScreenOn(false)
         }
         if (lock) {
             Lock.allowLockTask(this)
@@ -375,6 +376,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val HOST = "appassets.androidplatform.net"
-        const val BuildConfigVersion = "0.4.0"
+        const val BuildConfigVersion = "0.4.1"
     }
 }
