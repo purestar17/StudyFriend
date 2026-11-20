@@ -176,12 +176,19 @@ class MainActivity : ComponentActivity() {
                 val key = Lock.activeKey(this)
                 if (Lock.isDeviceOwner(this) || pinPromptedKey != key) {
                     pinPromptedKey = key
-                    try { startLockTask() } catch (_: Exception) { }
+                    try { startLockTask() } catch (e: Exception) { android.util.Log.w("StudyFriend", "startLockTask", e) }
                 }
             }
         } else {
-            Lock.setStudyHome(this, false)
-            if (inLockTask()) try { stopLockTask() } catch (_: Exception) { }
+            // 먼저 잠금(Lock Task)을 풀고, 그다음 홈 설정을 되돌린다.
+            // 거꾸로 하면 잠긴 채로 홈 앱이 바뀌어 상단바가 사라지고 다른 앱이 안 열리는 상태가 될 수 있다.
+            if (inLockTask()) try { stopLockTask() } catch (e: Exception) { android.util.Log.w("StudyFriend", "stopLockTask", e) }
+            android.os.Handler(mainLooper).postDelayed({
+                if (Lock.shouldLockNow(this)) return@postDelayed
+                Lock.setStudyHome(this, false)
+                // 학습 시간 동안 홈 화면 자리로 열렸던 화면이면 닫아서 원래 홈 화면으로 돌려보낸다
+                if (!inLockTask() && intent?.component?.className?.endsWith(".StudyHome") == true) finishAndRemoveTask()
+            }, 600)
         }
         if (::web.isInitialized) web.evaluateJavascript("window.onStudyLock && onStudyLock()", null)
     }
@@ -376,6 +383,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val HOST = "appassets.androidplatform.net"
-        const val BuildConfigVersion = "0.4.2"
+        const val BuildConfigVersion = "0.4.3"
     }
 }

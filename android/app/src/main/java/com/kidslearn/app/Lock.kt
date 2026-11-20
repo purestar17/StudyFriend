@@ -81,7 +81,8 @@ object Lock {
             setStudyHome(ctx, true)
             launch(ctx)
         } else {
-            setStudyHome(ctx, false)
+            // 잠금 중이면 열려 있는 앱이 먼저 잠금을 풀고 홈 설정을 되돌린다 (순서가 바뀌면 상단바·홈이 꼬인다)
+            if (!inLockTask(ctx)) setStudyHome(ctx, false)
             ctx.sendBroadcast(Intent(ACTION_CHECK).setPackage(ctx.packageName))
         }
     }
@@ -136,15 +137,20 @@ object Lock {
         }
     }
 
-    /** 학습 시간 동안 이 앱을 기본 홈 화면으로: 홈 버튼을 눌러도, 화면을 다시 켜도 이 앱이 나온다 */
+    fun inLockTask(ctx: Context) =
+        ctx.getSystemService(android.app.ActivityManager::class.java).lockTaskModeState != android.app.ActivityManager.LOCK_TASK_MODE_NONE
+
+    /** 학습 시간 동안 이 앱을 기본 홈 화면으로: 홈 버튼을 눌러도, 화면을 다시 켜도 이 앱이 나온다.
+     *  이미 그 상태면 아무것도 바꾸지 않는다 (바꿀 때마다 시스템과 홈 앱이 앱 목록을 다시 읽어 버벅인다) */
     fun setStudyHome(ctx: Context, on: Boolean) {
+        val p = prefs(ctx)
         val alias = ComponentName(ctx, "${ctx.packageName}.StudyHome")
-        ctx.packageManager.setComponentEnabledSetting(
-            alias,
-            if (on) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-            PackageManager.DONT_KILL_APP,
-        )
-        if (!isDeviceOwner(ctx)) return
+        val want = if (on) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        val owner = isDeviceOwner(ctx)
+        if (ctx.packageManager.getComponentEnabledSetting(alias) == want && p.getBoolean("homeSet", false) == (on && owner)) return
+        ctx.packageManager.setComponentEnabledSetting(alias, want, PackageManager.DONT_KILL_APP)
+        p.edit().putBoolean("homeSet", on && owner).apply()
+        if (!owner) return
         val d = dpm(ctx)
         d.clearPackagePersistentPreferredActivities(admin(ctx), ctx.packageName)
         if (on) {

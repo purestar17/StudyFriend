@@ -34,7 +34,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:lockTaskMode="if_whitelisted"
+            android:lockTaskMode="normal"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode"
             android:screenOrientation="fullUser"
             android:windowSoftInputMode="adjustResize">
