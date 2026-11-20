@@ -232,4 +232,24 @@ if (Pen.recognize(many, false) !== "375") throw new Error("펜 정수 " + Pen.re
   if (HS.dueChars(prog, now).join("") !== "三一") fail("복습 순서");
   if (HS.groupState([["一"], ["二"]], {}) !== "new" || HS.groupState([["一"], ["二"]], prog) !== "learning" || HS.groupState([["一"]], prog) !== "done") fail("묶음 상태");
 }
+// ---- 룰렛 ----
+{
+  const RL = require(W + "roulette.js"), SC = require(W + "schedule.js");
+  const fail = (m) => { throw new Error("룰렛 " + m); };
+  if (RL.indexAt(0, 5) !== 0 || RL.indexAt(1, 5) !== 4 || RL.indexAt(360 - 73, 5) !== 1 || RL.indexAt(720 + 359, 4) !== 0) fail("칸 번호");
+  const weak = RL.spinPlan(RL.speedOf(RL.MIN_PULL + 1)).angle, strong = RL.spinPlan(RL.speedOf(RL.MAX_PULL)).angle;
+  if (!(weak > 200 && weak < 720 && strong > 1800 && strong > weak * 3)) fail(`세기 ${weak} ${strong}`);
+  // 룰렛 과제: 정해진 과제보다 더 한 만큼 채워진다
+  const since = new Date(2026, 10, 20, 16, 0), t = since.getTime();
+  const sched = { enabled: true, slots: [{ days: [5], start: "16:00", end: "18:00" }], tasks: { MATH: 1, ROULETTE: 2 } };
+  const ses = (l) => l.map((id, i) => ({ subject: id, startedAt: t + 1000 * (i + 1) }));
+  let p = SC.taskProgress(sched, ses(["MATH"]), since, null, [{ at: t + 500, subject: "MATH" }]);
+  let r = p.items.find((x) => x.id === "ROULETTE");
+  if (r.done !== 0 || r.pending.join() !== "MATH" || p.complete) fail("수학 1번은 정해진 과제");
+  p = SC.taskProgress(sched, ses(["MATH", "MATH", "HANJA"]), since, null, [{ at: t + 500, subject: "MATH" }, { at: t + 600, subject: "HANJA" }, { at: t - 9999, subject: "KOREAN" }]);
+  r = p.items.find((x) => x.id === "ROULETTE");
+  if (r.done !== 2 || r.pending.length || !p.complete) fail("룰렛 2번 완료 " + JSON.stringify(r));
+  p = SC.taskProgress(sched, [], since, { all: true, subjects: new Set() }, []);
+  if (!p.complete) fail("하루 면제");
+}
 console.log(`통과: 문제 ${n}개 검사, 펜 인식 견본 ${penAll - penMiss.length}/${penAll}`);

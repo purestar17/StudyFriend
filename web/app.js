@@ -36,6 +36,8 @@
     /** 한자 급수별 학습: 한 묶음 글자 수, 쓰기 단계 넣기 */
     get hanjaChunk() { return store.get("hanjaChunk", 6); }, set hanjaChunk(v) { store.set("hanjaChunk", v); },
     get hanjaWrite() { return store.get("hanjaWrite", true); }, set hanjaWrite(v) { store.set("hanjaWrite", v); },
+    /** 룰렛에 넣을 과목 */
+    get roulettePool() { return store.get("roulettePool", SUBJECTS.map((x) => x.id)); }, set roulettePool(v) { store.set("roulettePool", v); },
     get penInput() { return store.get("penInput", true); }, set penInput(v) { store.set("penInput", v); },
     /** 학습 시간표 (schedule.js 참고) */
     get schedule() { return store.get("schedule", DEFAULT_SCHEDULE); }, set schedule(v) { store.set("schedule", v); },
@@ -71,6 +73,11 @@
     remove(id) { store.set("prizes", this.all().filter((x) => x.id !== id)); },
     /** 아직 안 쓴 면제권 + 아직 안 받은 직접 쓴 포상 */
     waiting() { return this.all().filter((x) => (x.type === "text" ? !x.givenAt : !x.usedAt)); },
+  };
+  /** 룰렛이 고른 과목 기록 [{ at, subject }] */
+  const rolls = {
+    all() { return store.get("rolls", []); },
+    add(subject) { store.set("rolls", [{ at: Date.now(), subject }, ...this.all()].slice(0, 100)); },
   };
   const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
@@ -124,6 +131,7 @@
   function go(next) {
     if (writer) { try { writer.cancelQuiz(); } catch { /* 무시 */ } writer = null; }
     if (brush) { brush.destroy(); brush = null; }
+    if (wheel) { wheel.destroy(); wheel = null; }
     screen = next; render(); window.scrollTo(0, 0);
   }
 
@@ -224,6 +232,7 @@
             : `오늘 ${today.length}번 공부했어요 · ${total}문제 중 ${right}개 정답`)),
         prizeButton(),
         h("button", { class: "icon-btn", "aria-label": "관리자 모드", onclick: () => go({ name: "pin" }) }, "⚙ 관리자")),
+      rouletteCard(),
       h("div", { class: "subjects" }, SUBJECTS.map((s) => {
         const done = today.filter((x) => x.subject === s.id).length;
         return h("button", { class: "subject", style: `--c:${colorOf(s.id)}`, onclick: () => (HUB[s.id] ? go({ name: HUB[s.id] }) : startQuiz(s.id)) },
@@ -236,12 +245,50 @@
     ];
   }
 
+  const openSubject = (id) => (HUB[id] ? go({ name: HUB[id] }) : startQuiz(id));
+
+  // ---- 첫 화면 룰렛: 오늘 공부할 과목 고르기 ----
+  let wheel = null;
+  function rouletteCard() {
+    if (settings.roulettePool.length < 2 || typeof Roulette === "undefined") return null;
+    return h("button", { class: "roulette-card", onclick: () => go({ name: "roulette" }) },
+      h("span", { class: "rc-wheel", "aria-hidden": "true" }, "🎡"),
+      h("span", { class: "grow" }, h("b", {}, "오늘은 뭘 공부할까?"), h("span", { class: "muted" }, "룰렛 줄을 당겨서 과목을 정해요")),
+      h("span", { class: "rc-go", "aria-hidden": "true" }, "›"));
+  }
+  function RouletteScreen() {
+    const pool = settings.roulettePool.map(subjectById).filter(Boolean);
+    const st = studyNow(), it = st && st.items.find((i) => i.id === ROULETTE);
+    const pend = it && it.done < it.need && it.pending.length ? it.pending[0] : null;
+    const res = screen.result;
+    if (wheel) { wheel.destroy(); wheel = null; }
+    wheel = Roulette.create({
+      items: pool.map((x) => ({ id: x.id, label: x.title, mark: x.mark, color: COLORS[x.id] })),
+      locked: pend && !res ? `먼저 룰렛이 고른 '${subjectById(pend).title}' 공부를 끝내요` : null,
+      rotation: screen.rot ?? null,
+      onResult: (id, rot) => { rolls.add(id); screen.result = id; screen.rot = rot; render(); },
+    });
+    const sub = res && subjectById(res);
+    return [
+      h("div", { class: "row" }, h("button", { class: "icon-btn", "aria-label": "처음으로", onclick: () => go({ name: "home" }) }, "←"),
+        h("h1", { style: "font-size:28px" }, "과목 룰렛")),
+      it ? h("p", { class: "muted", style: "margin:0" }, `오늘의 룰렛 과제 ${it.done} / ${it.need}회` + (it.done >= it.need ? " · 다 했어요!" : "")) : null,
+      wheel.el,
+      sub ? h("div", { class: "rl-result", style: `--c:${colorOf(sub.id)}`, role: "status" },
+        h("span", { class: "rl-mark" }, sub.mark), h("b", {}, `${sub.title}!`),
+        h("button", { class: "btn primary", onclick: () => openSubject(sub.id) }, `${sub.title} 공부하러 가기`))
+        : pend ? h("div", { class: "rl-result", style: `--c:${colorOf(pend)}` }, h("b", {}, `룰렛이 고른 과목: ${subjectById(pend).title}`),
+          h("button", { class: "btn primary", onclick: () => openSubject(pend) }, `${subjectById(pend).title} 공부하러 가기`))
+          : h("p", { class: "lesson-tip" }, "오른쪽 줄의 손잡이를 아래로 당겼다 놓아요. 세게 당길수록 많이 돌아요."),
+    ];
+  }
+
   // ---- 학습 시간 (시간표 안일 때 오늘의 과제) ----
   const hm = (d) => `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
   function studyNow() {
     const sc = settings.schedule, slot = activeSlot(sc);
     if (!slot) return null;
-    return { slot, ...taskProgress(sc, sessions.all(), slot.start, exemptionsFor(prizes.all())) };
+    return { slot, ...taskProgress(sc, sessions.all(), slot.start, exemptionsFor(prizes.all()), rolls.all()) };
   }
   let reportedKey = null;
   /** 과제를 다 했으면 앱에 알려 잠금을 푼다 (시간 칸마다 한 번) */
@@ -266,6 +313,13 @@
     return h("section", { class: "study-card", "aria-label": "오늘의 과제" },
       h("h2", {}, "오늘의 과제"),
       h("div", { class: "tasks" }, st.items.map((i) => {
+        if (i.id === ROULETTE) {
+          const ok = i.done >= i.need, pend = i.pending && i.pending[0];
+          return h("button", { class: "task" + (ok ? " ok" : ""), style: "--c:var(--accent)", onclick: () => (pend && !ok ? openSubject(pend) : go({ name: "roulette" })) },
+            h("span", { class: "mark", "aria-hidden": "true" }, ok ? "✔" : "🎡"),
+            h("span", { class: "grow" }, pend && !ok ? `룰렛: ${subjectById(pend).title}` : "룰렛 과목"),
+            h("span", { class: "count" }, i.exempt ? "면제 🎫" : `${i.done} / ${i.need}회`));
+        }
         const s = subjectById(i.id), ok = i.done >= i.need;
         return h("button", { class: "task" + (ok ? " ok" : ""), style: `--c:${colorOf(i.id)}`, onclick: () => (HUB[i.id] ? go({ name: HUB[i.id] }) : startQuiz(i.id)) },
           h("span", { class: "mark", "aria-hidden": "true" }, ok ? "✔" : s.mark),
@@ -741,7 +795,7 @@
       due.length ? h("div", { class: "review-banner" },
         h("span", { class: "grow" }, h("b", {}, `복습할 한자 ${due.length}자`), h("span", { class: "muted" }, " · 잊을 만할 때 다시 봐요"), h("div", { class: "rv-chars", lang: "zh-Hant" }, due.join(" "))),
         h("button", { class: "btn primary", onclick: () => startHanjaTest(lv, "한자 복습 시험", HS.testQs([], due.map((c) => [c, meaningOf(c)]), CONTENT.hanja.slice(0, lv).flat())) }, "복습 시험")) : null,
-      h("div", { class: "group-grid" }, groups.map((gr, i) => h("button", { class: "group-card " + states[i] + (i === next ? " next" : ""),
+      h("div", { class: "group-grid" }, groups.map((gr, i) => h("button", { class: "group-card " + states[i] + (i === next ? " is-next" : ""),
         onclick: () => go({ name: "hanjaLesson", L: { lv, gi: i, step: 0 } }) },
         h("span", { class: "gname" }, `묶음 ${i + 1}`, i === next ? h("span", { class: "today" }, "오늘의 묶음") : null),
         h("span", { class: "gchars", lang: "zh-Hant" }, gr.map(([c]) => c).join("")),
@@ -1434,7 +1488,7 @@
     const dayMenu = h("div", { class: "day-menu", role: "tablist", "aria-orientation": "vertical", "aria-label": "과제 요일" }, [1, 2, 3, 4, 5, 6, 7].map((k) =>
       h("button", { class: "day-tab" + (usedDays.has(k) ? "" : " off"), role: "tab", "aria-selected": String(k === day), onclick: () => { screen.taskDay = k; render(); } },
         h("span", { class: "dn" }, DAY_NAMES[k]), h("span", { class: "sum" }, usedDays.has(k) ? (sumOf(k) ? `${sumOf(k)}회` : "없음") : "쉬는 날"))));
-    const taskRows = SUBJECTS.map((s) => {
+    const taskRows = [...SUBJECTS, { id: ROULETTE, title: "🎡 룰렛으로 정하기" }].map((s) => {
       const n = dayTasks[s.id] || 0;
       const set = (v) => { dayTasks[s.id] = Math.max(0, Math.min(5, v)); render(); };
       return h("div", { class: "task-set" },
@@ -1490,8 +1544,19 @@
       h("div", { class: "slots" }, d.slots.map(slotRow)),
       h("button", { class: "add-row", onclick: () => { d.slots.push({ days: [1, 2, 3, 4, 5], start: "19:00", end: "20:00" }); render(); } }, "+ 시간 추가"),
       h("strong", {}, "요일별 과제 (그날 학습 시간마다)"),
+      h("p", { class: "muted", style: "margin:0" }, "'룰렛으로 정하기'는 아이가 첫 화면 룰렛을 돌려 나온 과목을 공부하는 과제예요. 다른 과제보다 더 한 만큼 채워져요."),
       tasks,
       h("button", { class: "btn primary", onclick: save }, "시간표 저장"),
+      h("strong", {}, "룰렛에 넣을 학습"),
+      h("p", { class: "muted", style: "margin:0" }, "첫 화면 룰렛에 나올 과목이에요. 두 개 이상 골라 주세요."),
+      h("div", { class: "chips" }, SUBJECTS.map((x) => {
+        const pool = settings.roulettePool, on = pool.includes(x.id);
+        return h("button", { class: "chip", "aria-pressed": String(on), onclick: () => {
+          const next = on ? pool.filter((v) => v !== x.id) : [...pool, x.id];
+          if (next.length < 2) { adminMsg = "룰렛에는 두 과목 이상 있어야 해요"; return render(); }
+          settings.roulettePool = SUBJECTS.map((v) => v.id).filter((v) => next.includes(v)); render();
+        } }, x.title);
+      })),
       h("strong", {}, "이 기기"),
       device);
   }
@@ -1715,7 +1780,7 @@
   }
 
   function render() {
-    const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin, hanjaHub: HanjaHub, mathHub: MathHub, wordHub: WordHub, talk: Talk, learnList: LearnList, learnChar: LearnChar, prizes: PrizeBox, hanjaStudy: HanjaStudyHome, hanjaLesson: HanjaLesson };
+    const views = { home: Home, quiz: Quiz, result: Result, pin: Pin, admin: Admin, hanjaHub: HanjaHub, mathHub: MathHub, wordHub: WordHub, talk: Talk, learnList: LearnList, learnChar: LearnChar, prizes: PrizeBox, hanjaStudy: HanjaStudyHome, hanjaLesson: HanjaLesson, roulette: RouletteScreen };
     app.replaceChildren(...views[screen.name]().flat().filter(Boolean));
     syncStudy();
   }

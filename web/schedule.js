@@ -34,17 +34,39 @@
     return (byDay && byDay[isoDay(date)]) || schedule.tasks || {};
   }
 
+  /** 요일별 과제에서 '룰렛으로 정하기' 칸의 이름 */
+  const ROULETTE = "ROULETTE";
+
   /**
    * 과제 진행: 이 시간 칸이 시작된 뒤 끝낸 학습 횟수를 과목별로 센다.
    * exempt: 포상 면제권 { all, subjects: Set } — 면제된 과목은 다 한 것으로 친다
+   * rolls: 룰렛 기록 [{ at, subject }] — 룰렛 과제는 룰렛이 고른 과목을 정해진 과제보다 더 한 만큼 채워진다
    */
-  function taskProgress(schedule, sessions, since, exempt) {
+  function taskProgress(schedule, sessions, since, exempt, rolls = []) {
     const t = since ? since.getTime() : 0;
-    const items = Object.entries(tasksFor(schedule, since || new Date())).filter(([, n]) => n > 0).map(([id, need]) => {
-      if (exempt && (exempt.all || (exempt.subjects && exempt.subjects.has(id)))) return { id, need, done: need, exempt: true };
-      const done = sessions.filter((x) => x.subject === id && x.startedAt >= t).length;
-      return { id, need, done: Math.min(done, need) };
+    const tasks = tasksFor(schedule, since || new Date());
+    const count = (id) => sessions.filter((x) => x.subject === id && x.startedAt >= t).length;
+    const isExempt = (id) => exempt && (exempt.all || (exempt.subjects && exempt.subjects.has(id)));
+    const items = Object.entries(tasks).filter(([id, n]) => n > 0 && id !== ROULETTE).map(([id, need]) => {
+      if (isExempt(id)) return { id, need, done: need, exempt: true };
+      return { id, need, done: Math.min(count(id), need) };
     });
+    const rNeed = tasks[ROULETTE] || 0;
+    if (rNeed > 0) {
+      if (exempt && exempt.all) items.push({ id: ROULETTE, need: rNeed, done: rNeed, exempt: true, pending: [] });
+      else {
+        // 룰렛이 고른 과목마다: (그 과목 학습 수 - 정해진 과제 수) 만큼 룰렛 과제로 친다
+        const mine = rolls.filter((r) => r.at >= t), by = {};
+        for (const r of mine) by[r.subject] = (by[r.subject] || 0) + 1;
+        let done = 0; const pending = [];
+        for (const [id, n] of Object.entries(by)) {
+          const extra = isExempt(id) ? n : Math.max(0, count(id) - (tasks[id] || 0));
+          done += Math.min(n, extra);
+          for (let k = Math.min(n, extra); k < n; k++) pending.push(id);
+        }
+        items.push({ id: ROULETTE, need: rNeed, done: Math.min(done, rNeed), pending, rolled: mine.length });
+      }
+    }
     return { items, complete: items.every((i) => i.done >= i.need) };
   }
 
@@ -63,7 +85,7 @@
     return null;
   }
 
-  const api = { DEFAULT_SCHEDULE, DAY_NAMES, activeSlot, taskProgress, tasksFor, checkSchedule, toMin, isoDay };
+  const api = { DEFAULT_SCHEDULE, DAY_NAMES, ROULETTE, activeSlot, taskProgress, tasksFor, checkSchedule, toMin, isoDay };
   if (typeof module !== "undefined") module.exports = api;
   else Object.assign(window, api);
 })();
