@@ -82,6 +82,7 @@ object Lock {
             launch(ctx)
         } else {
             // 잠금 중이면 열려 있는 앱이 먼저 잠금을 풀고 홈 설정을 되돌린다 (순서가 바뀌면 상단바·홈이 꼬인다)
+            if (inLockTask(ctx)) endLockTask(ctx)
             if (!inLockTask(ctx)) setStudyHome(ctx, false)
             ctx.sendBroadcast(Intent(ACTION_CHECK).setPackage(ctx.packageName))
         }
@@ -139,6 +140,16 @@ object Lock {
 
     fun inLockTask(ctx: Context) =
         ctx.getSystemService(android.app.ActivityManager::class.java).lockTaskModeState != android.app.ActivityManager.LOCK_TASK_MODE_NONE
+
+    /**
+     * 잠금(Lock Task)을 확실히 끝낸다. 화면의 stopLockTask()만으로는 삼성 기기에서 잠금이 남는 일이 있어서,
+     * 기기 관리자 권한으로 '잠금 중 허용 앱' 목록을 비운다. 목록에서 빠진 앱의 잠금은 시스템이 바로 끝낸다.
+     * 다음 학습 시간에 잠글 때 allowLockTask()가 목록을 다시 채운다.
+     */
+    fun endLockTask(ctx: Context) {
+        if (!isDeviceOwner(ctx)) return
+        try { dpm(ctx).setLockTaskPackages(admin(ctx), arrayOf()) } catch (e: Exception) { android.util.Log.w("StudyFriend", "endLockTask", e) }
+    }
 
     /** 학습 시간 동안 이 앱을 기본 홈 화면으로: 홈 버튼을 눌러도, 화면을 다시 켜도 이 앱이 나온다.
      *  이미 그 상태면 아무것도 바꾸지 않는다 (바꿀 때마다 시스템과 홈 앱이 앱 목록을 다시 읽어 버벅인다) */
