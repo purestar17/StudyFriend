@@ -1,8 +1,15 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.devtools.ksp")
+}
+
+// 웹 버전(../../web)을 앱 안에 넣는다. 인터넷 없이도 학습 화면이 열린다.
+val webAssets = layout.buildDirectory.dir("generated/webAssets")
+val copyWeb by tasks.registering(Sync::class) {
+    from(rootProject.file("../web")) {
+        exclude("tests/**", "README.md")
+    }
+    into(webAssets.map { it.dir("web") })
 }
 
 android {
@@ -13,9 +20,11 @@ android {
         applicationId = "com.kidslearn.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 16
+        versionName = "0.4.4"
     }
+
+    sourceSets["main"].assets.srcDir(webAssets)
 
     buildTypes {
         release {
@@ -29,27 +38,15 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-    buildFeatures {
-        compose = true
-    }
 }
 
-dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
-    implementation(composeBom)
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+tasks.named("preBuild") { dependsOn(copyWeb) }
 
-    val room = "2.6.1"
-    implementation("androidx.room:room-runtime:$room")
-    implementation("androidx.room:room-ktx:$room")
-    ksp("androidx.room:room-compiler:$room")
+dependencies {
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.activity:activity-ktx:1.9.3")
+    implementation("androidx.webkit:webkit:1.12.1")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
